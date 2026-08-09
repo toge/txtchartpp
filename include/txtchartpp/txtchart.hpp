@@ -166,7 +166,7 @@ struct BrailleGrid {
             return;
         }
         int const cy = py / 4;
-        int const dot = (py % 4) + (px % 2) * 4; // 左列 0-3, 右列 4-7
+        int const dot = (3 - (py % 4)) + (px % 2) * 4; // 左列 0-3, 右列 4-7 (上下反転補正)
         cells[static_cast<std::size_t>(cy) * cell_cols + cx] |= braille_dot_bits[dot];
     }
 

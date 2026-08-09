@@ -55,7 +55,7 @@ def plot_braille(series, cfg=None):
         if cx >= cell_cols:
             return
         cy = y // 4
-        dy = y % 4
+        dy = 3 - (y % 4)  # py%4=0 → 下, py%4=3 → 上 (レンダーの上下反転補正)
         dx = x % 2
         bit = LEFT_BITS[dy] if dx == 0 else RIGHT_BITS[dy]
         cells[cy * cell_cols + cx] |= bit
