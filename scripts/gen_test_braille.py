@@ -81,7 +81,34 @@ def plot_braille(series, cfg=None):
             b = cells[cy * cell_cols + cx]
             line += chr(0x2800 + b)
         lines.append(line)
-    return '\n'.join(lines)
+
+    # Y 軸ラベルと軸シンボル
+    offset = cfg.get('offset', 3)
+    symbols = cfg.get('symbols', ['┼', '┤', '╶', '╴', '─', '╰', '╭', '╮', '╯', '│'])
+    fmt = cfg.get('format', '{:8.2f} ')
+
+    # ゼロラインの計算
+    zero_line = -1
+    if minimum <= 0 <= maximum:
+        if interval > 0:
+            py_zero = py(0)
+            zero_line = cell_rows - 1 - py_zero // 4
+        else:
+            zero_line = cell_rows // 2
+
+    out_lines = []
+    for i in range(cell_rows):
+        label_value = maximum - (i * interval / (cell_rows - 1)) if cell_rows > 1 else maximum
+        label = fmt.format(label_value)
+        axis_symbol = symbols[0] if i == zero_line else symbols[1]
+        col = max(offset - len(label), 0)
+        left_part = ' ' * col + label
+        pad = (offset - 1) - col - len(label)
+        if pad > 0:
+            left_part += ' ' * pad
+        left_part += axis_symbol
+        out_lines.append(left_part + lines[i])
+    return '\n'.join(out_lines)
 
 def cpp_escape(s):
     out = []
@@ -216,6 +243,14 @@ add_case("点字: 単一値",
     '    auto const series = std::vector<double>{5};\n',
     cpp_literal('bsingle', cases[10][1]),
     'plot_braille(series) == expected_bsingle')
+
+blocks.append('TEST_CASE("点字: マルチ系列空系列 → 空文字列") {\n'
+    '    CHECK(plot_braille(std::vector<std::vector<double>>{}) == "");\n'
+    '}\n')
+
+blocks.append('TEST_CASE("点字: マルチ系列全 NaN → 空文字列") {\n'
+    '    CHECK(plot_braille(std::vector<std::vector<double>>{{nan_value, nan_value}}) == "");\n'
+    '}\n')
 
 blocks.append('TEST_CASE("点字: エラー (min > max)") {\n'
     '    auto cfg = Config{};\n'

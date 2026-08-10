@@ -199,6 +199,16 @@ tests.append(('''TEST_CASE("エッジケース: 負値") {
 }
 '''))
 
+tests.append(('''TEST_CASE("エッジケース: マルチ系列空系列 → 空文字列") {
+    CHECK(plot(std::vector<std::vector<double>>{}) == "");
+}
+'''))
+
+tests.append(('''TEST_CASE("エッジケース: マルチ系列全 NaN → 空文字列") {
+    CHECK(plot(std::vector<std::vector<double>>{{nan_value, nan_value}}) == "");
+}
+'''))
+
 tests.append(('''TEST_CASE("エラー: min > max → std::invalid_argument") {
     auto cfg = Config{};
     cfg.min = 10.0;

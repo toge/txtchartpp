@@ -197,6 +197,10 @@ struct BrailleGrid {
  */
 inline auto plot(std::vector<std::vector<double>> const& series, Config const& cfg = {})
     -> std::string {
+    if (series.empty()) {
+        return {};
+    }
+
     // シンボル定義 (asciichartpy の default_symbols と同一)
     // [0]=cross [1]=right tee [2]=左向き [3]=右向き [4]=水平
     // [5]=下がり [6]=上がり [7]=上 [8]=下 [9]=垂直
@@ -204,6 +208,11 @@ inline auto plot(std::vector<std::vector<double>> const& series, Config const& c
 
     // NaN を無視した全体の最小/最大
     auto const [data_min, data_max] = detail::min_max(series);
+    // 全て NaN (または空系列) の場合は空文字列を返す
+    if (data_min > data_max) {
+        return {};
+    }
+
     double const minimum = cfg.min.value_or(data_min);
     double const maximum = cfg.max.value_or(data_max);
 
@@ -249,10 +258,12 @@ inline auto plot(std::vector<std::vector<double>> const& series, Config const& c
     }
 
     // 最初の値は Y 軸上に印を付ける
-    double const d0 = series[0][0];
-    if (detail::is_number(d0)) {
-        result[static_cast<std::size_t>(rows - scaled(d0))][static_cast<std::size_t>(offset - 1)] =
-            symbols[0];
+    if (!series[0].empty()) {
+        double const d0 = series[0][0];
+        if (detail::is_number(d0)) {
+            result[static_cast<std::size_t>(rows - scaled(d0))][static_cast<std::size_t>(offset - 1)] =
+                symbols[0];
+        }
     }
 
     // 各系列を描画
@@ -356,7 +367,7 @@ inline auto plot(std::vector<double> const& series, Config const& cfg = {}) -> s
  * Braille 文字は 1 文字あたり 2列×4行のドットを持ち、ASCII 版より高解像度。
  * 系列の各点をピクセル座標に写像し、隣接点を直線で結ぶ。
  * @param series 系列のリスト (NaN はスキップされる)
- * @param cfg    描画設定 (min/max/height のみ使用。offset/format/colors は無視)
+ * @param cfg    描画設定 (min/max/height/offset/format/symbols を使用)
  * @return グラフ文字列。空系列や全 NaN なら空文字列
  * @throws std::invalid_argument min が max より大きい場合
  */
@@ -368,7 +379,8 @@ inline auto plot_braille(std::vector<std::vector<double>> const& series, Config 
 
     // NaN を無視した全体の最小/最大
     auto const [data_min, data_max] = detail::min_max(series);
-    if (!detail::is_number(data_min) || !detail::is_number(data_max)) {
+    // 全て NaN (または空系列) の場合は空文字列を返す
+    if (data_min > data_max) {
         return {};
     }
     double const minimum = cfg.min.value_or(data_min);
@@ -431,7 +443,58 @@ inline auto plot_braille(std::vector<std::vector<double>> const& series, Config 
         }
     }
 
-    return grid.render();
+    // Braille グリッドを行に分割
+    std::string const braille_output = grid.render();
+    std::vector<std::string> grid_lines;
+    {
+        std::string line;
+        for (char const c : braille_output) {
+            if (c == '\n') {
+                grid_lines.push_back(line);
+                line.clear();
+            } else {
+                line += c;
+            }
+        }
+        if (!line.empty()) {
+            grid_lines.push_back(line);
+        }
+    }
+
+    // Y 軸ラベルと軸シンボル
+    int const offset = cfg.offset;
+    auto const& symbols = cfg.symbols;
+
+    // ゼロラインの計算
+    int zero_line = -1;
+    if (minimum <= 0.0 && maximum >= 0.0) {
+        int const py_zero = scaled(0.0);
+        zero_line = cell_rows - 1 - py_zero / 4;
+    }
+
+    std::string out;
+    for (int i = 0; i < cell_rows; ++i) {
+        double const label_value = (cell_rows > 1)
+            ? maximum - (i * interval / (cell_rows - 1))
+            : maximum;
+        std::string const label = std::vformat(cfg.format, std::make_format_args(label_value));
+
+        std::string const axis_symbol = (i == zero_line) ? symbols[0] : symbols[1];
+
+        int const col = std::max(offset - static_cast<int>(label.size()), 0);
+        std::string left_part = std::string(col, ' ') + label;
+        int const pad = (offset - 1) - col - static_cast<int>(label.size());
+        if (pad > 0) {
+            left_part += std::string(pad, ' ');
+        }
+        left_part += axis_symbol;
+
+        if (i != 0) {
+            out += '\n';
+        }
+        out += left_part + grid_lines[static_cast<std::size_t>(i)];
+    }
+    return out;
 }
 
 /**
