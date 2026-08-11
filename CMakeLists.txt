@@ -22,6 +22,8 @@ include(Catch)
 add_executable(test_plot
     test/test_plot.cpp
     test/test_braille.cpp
+    test/test_bar.cpp
+    test/test_bar_braille.cpp
 )
 target_link_libraries(test_plot PRIVATE txtchartpp Catch2::Catch2WithMain)
 target_compile_features(test_plot PRIVATE cxx_std_26)

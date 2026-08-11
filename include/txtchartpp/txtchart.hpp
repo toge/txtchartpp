@@ -70,6 +70,8 @@ struct Config {
     std::array<std::string, 10> symbols = {
         "┼", "┤", "╶", "╴", "─", "╰", "╭", "╮", "╯", "│",
     };
+    /** @brief 棒グラフのバー描画シンボル (bar() / bar_braille() で使用) */
+    std::string bar_symbol = "█";
     /** @brief 系列ごとの ANSI 色コード。空なら色なし (asciichartpy の colors と互換) */
     std::vector<std::string_view> colors;
 };
@@ -495,6 +497,490 @@ inline auto plot_braille(std::vector<std::vector<double>> const& series, Config 
         out += left_part + grid_lines[static_cast<std::size_t>(i)];
     }
     return out;
+}
+
+/**
+ * @brief 複数系列を水平棒グラフに描画する (ASCII)
+ * @details
+ * 各値をゼロラインから右方向に延ばした棒で表現する。値が大きいほど棒が長い。
+ * 行の先頭に値ラベルを表示し、その後に棒を描画する。
+ * 系列が複数の場合、カテゴリごとに系列分の行を縦に積み重ねて並べる。
+ * @param series 系列のリスト (系列ごとに値の列)
+ * @param cfg    描画設定
+ * @return グラフ文字列。空系列や全 NaN なら空文字列
+ * @throws std::invalid_argument min が max より大きい場合
+ */
+inline auto bar(std::vector<std::vector<double>> const& series, Config const& cfg = {})
+    -> std::string {
+    if (series.empty()) {
+        return {};
+    }
+
+    // NaN を無視した全体の最小/最大
+    auto const [data_min, data_max] = detail::min_max(series);
+    if (data_min > data_max) {
+        return {};
+    }
+    double const minimum = cfg.min.value_or(data_min);
+    double const maximum = cfg.max.value_or(data_max);
+    if (minimum > maximum) {
+        throw std::invalid_argument("The min value cannot exceed the max value.");
+    }
+    double const interval = maximum - minimum;
+
+    // カテゴリ数 (全系列の最大長)
+    std::size_t const categories = [&series] {
+        std::size_t n = 0;
+        for (auto const& s : series) {
+            n = std::max(n, s.size());
+        }
+        return n;
+    }();
+
+    // ラベルの最大幅 (全系列の全値を書式化して最大幅を求める)
+    std::size_t label_width = 0;
+    for (auto const& s : series) {
+        for (double const v : s) {
+            if (detail::is_number(v)) {
+                std::string const label = std::vformat(cfg.format, std::make_format_args(v));
+                label_width = std::max(label_width, label.size());
+            }
+        }
+    }
+    label_width += static_cast<std::size_t>(cfg.offset);
+
+    // バーの長さ (文字数)。値 0 は長さ 0
+    auto const bar_len = [&](double const v) -> int {
+        if (interval <= 0.0) {
+            return 0;
+        }
+        return static_cast<int>(detail::py_round(v / interval * cfg.height.value_or(interval)));
+    };
+
+    // カテゴリごとに系列分の行を積み重ねる
+    std::string out;
+    bool first = true;
+    for (std::size_t c = 0; c < categories; ++c) {
+        for (std::size_t si = 0; si < series.size(); ++si) {
+            if (!first) {
+                out += '\n';
+            }
+            first = false;
+            auto const& s = series[si];
+            double const v = (c < s.size()) ? s[c] : std::numeric_limits<double>::quiet_NaN();
+            std::string row;
+            if (detail::is_number(v)) {
+                std::string const label = std::vformat(cfg.format, std::make_format_args(v));
+                row += std::string(label_width - label.size(), ' ') + label;
+                int const len = bar_len(v);
+                for (int i = 0; i < len; ++i) {
+                    row += cfg.bar_symbol;
+                }
+            } else {
+                row += std::string(label_width, ' ');
+            }
+            out += row;
+        }
+    }
+    return out;
+}
+
+/**
+ * @brief 単一系列を水平棒グラフに描画する (ASCII)
+ * @param series 値の列 (NaN で欠損を表せる)
+ * @param cfg    描画設定
+ * @return グラフ文字列。空系列や全 NaN なら空文字列
+ * @throws std::invalid_argument min が max より大きい場合
+ */
+inline auto bar(std::vector<double> const& series, Config const& cfg = {}) -> std::string {
+    if (series.empty()) {
+        return {};
+    }
+    bool all_nan = true;
+    for (double const v : series) {
+        if (detail::is_number(v)) {
+            all_nan = false;
+            break;
+        }
+    }
+    if (all_nan) {
+        return {};
+    }
+    return bar(std::vector<std::vector<double>>{series}, cfg);
+}
+
+/**
+ * @brief 複数系列を水平棒グラフに描画する (Braille)
+ * @details
+ * 各値を Braille 文字で右方向に延ばした棒で表現する。
+ * Braille 文字は 1 文字あたり 2列のドットを持ち、半分セル単位で細かい長さ表現が可能。
+ * 行の先頭に値ラベルを表示し、その後に棒を描画する。
+ * 系列が複数の場合、カテゴリごとに系列分の行を縦に積み重ねて並べる。
+ * @param series 系列のリスト (NaN はスキップされる)
+ * @param cfg    描画設定
+ * @return グラフ文字列。空系列や全 NaN なら空文字列
+ * @throws std::invalid_argument min が max より大きい場合
+ */
+inline auto bar_braille(std::vector<std::vector<double>> const& series, Config const& cfg = {})
+    -> std::string {
+    if (series.empty()) {
+        return {};
+    }
+
+    // NaN を無視した全体の最小/最大
+    auto const [data_min, data_max] = detail::min_max(series);
+    if (data_min > data_max) {
+        return {};
+    }
+    double const minimum = cfg.min.value_or(data_min);
+    double const maximum = cfg.max.value_or(data_max);
+    if (minimum > maximum) {
+        throw std::invalid_argument("The min value cannot exceed the max value.");
+    }
+    double const interval = maximum - minimum;
+
+    // カテゴリ数 (全系列の最大長)
+    std::size_t const categories = [&series] {
+        std::size_t n = 0;
+        for (auto const& s : series) {
+            n = std::max(n, s.size());
+        }
+        return n;
+    }();
+
+    // ラベルの最大幅 (全系列の全値を書式化して最大幅を求める)
+    std::size_t label_width = 0;
+    for (auto const& s : series) {
+        for (double const v : s) {
+            if (detail::is_number(v)) {
+                std::string const label = std::vformat(cfg.format, std::make_format_args(v));
+                label_width = std::max(label_width, label.size());
+            }
+        }
+    }
+    label_width += static_cast<std::size_t>(cfg.offset);
+
+    // バーの長さ (半分セル単位)。Braille の 1 セル = 2 列
+    auto const half_len = [&](double const v) -> int {
+        if (interval <= 0.0) {
+            return 0;
+        }
+        return static_cast<int>(detail::py_round(v / interval * cfg.height.value_or(interval) * 2.0));
+    };
+
+    // カテゴリごとに系列分の行を積み重ねる
+    std::string out;
+    bool first = true;
+    for (std::size_t c = 0; c < categories; ++c) {
+        for (std::size_t si = 0; si < series.size(); ++si) {
+            if (!first) {
+                out += '\n';
+            }
+            first = false;
+            auto const& s = series[si];
+            double const v = (c < s.size()) ? s[c] : std::numeric_limits<double>::quiet_NaN();
+            std::string row;
+            if (detail::is_number(v)) {
+                std::string const label = std::vformat(cfg.format, std::make_format_args(v));
+                row += std::string(label_width - label.size(), ' ') + label;
+                int const len = half_len(v);
+                int const full = len / 2;
+                int const half = len % 2;
+                for (int i = 0; i < full; ++i) {
+                    row += cfg.bar_symbol;
+                }
+                if (half != 0) {
+                    row += "▌";  // 左半分のブロック
+                }
+            } else {
+                row += std::string(label_width, ' ');
+            }
+            out += row;
+        }
+    }
+    return out;
+}
+
+/**
+ * @brief 単一系列を水平棒グラフに描画する (Braille)
+ * @param series 値の列 (NaN で欠損を表せる)
+ * @param cfg    描画設定
+ * @return グラフ文字列。空系列や全 NaN なら空文字列
+ * @throws std::invalid_argument min が max より大きい場合
+ */
+inline auto bar_braille(std::vector<double> const& series, Config const& cfg = {}) -> std::string {
+    if (series.empty()) {
+        return {};
+    }
+    bool all_nan = true;
+    for (double const v : series) {
+        if (detail::is_number(v)) {
+            all_nan = false;
+            break;
+        }
+    }
+    if (all_nan) {
+        return {};
+    }
+    return bar_braille(std::vector<std::vector<double>>{series}, cfg);
+}
+
+/**
+ * @brief 複数系列を垂直棒グラフに描画する (ASCII)
+ * @details
+ * 各値をゼロラインから上方向に延ばした棒で表現する。
+ * 値が大きいほど棒が高く、負の値はゼロラインから下方向に伸びる。
+ * 系列が複数の場合、カテゴリごとに系列分の棒を横に並べる。
+ * @param series 系列のリスト (系列ごとに値の列)
+ * @param cfg    描画設定
+ * @return グラフ文字列。空系列や全 NaN なら空文字列
+ * @throws std::invalid_argument min が max より大きい場合
+ */
+inline auto vbar(std::vector<std::vector<double>> const& series, Config const& cfg = {})
+    -> std::string {
+    if (series.empty()) {
+        return {};
+    }
+
+    // NaN を無視した全体の最小/最大
+    auto const [data_min, data_max] = detail::min_max(series);
+    if (data_min > data_max) {
+        return {};
+    }
+    double const minimum = cfg.min.value_or(data_min);
+    double const maximum = cfg.max.value_or(data_max);
+    if (minimum > maximum) {
+        throw std::invalid_argument("The min value cannot exceed the max value.");
+    }
+    double const interval = maximum - minimum;
+
+    // 行数
+    double const height = cfg.height.value_or(interval);
+    int const rows = static_cast<int>(std::max(height, 1.0));
+    // 値 → 行位置 (0 = 最大値, rows-1 = 最小値)
+    auto const scaled = [&](double const v) -> int {
+        if (interval <= 0.0) {
+            return (rows - 1) / 2;
+        }
+        return static_cast<int>(detail::py_round((maximum - v) / interval * (rows - 1)));
+    };
+    // ゼロラインの行位置 (区間外の場合は -1)
+    int const zero_y = (minimum <= 0.0 && maximum >= 0.0) ? scaled(0.0) : -1;
+
+    // カテゴリ数 (全系列の最大長)
+    std::size_t const categories = [&series] {
+        std::size_t n = 0;
+        for (auto const& s : series) {
+            n = std::max(n, s.size());
+        }
+        return n;
+    }();
+
+    // 出力を組み立てる (上から下)
+    std::string out;
+    for (int r = 0; r < rows; ++r) {
+        if (r != 0) {
+            out += '\n';
+        }
+        // Y 軸ラベルと軸シンボル
+        double const label_value = maximum - (r * interval / (rows > 1 ? rows - 1 : 1));
+        std::string const label = std::vformat(cfg.format, std::make_format_args(label_value));
+        out += std::string(std::max(static_cast<int>(cfg.offset - label.size()), 0), ' ') + label;
+        out += (r == zero_y) ? cfg.symbols[0] : cfg.symbols[1];
+
+        // カテゴリごとの棒
+        for (std::size_t c = 0; c < categories; ++c) {
+            for (std::size_t si = 0; si < series.size(); ++si) {
+                auto const& s = series[si];
+                if (c < s.size() && detail::is_number(s[c])) {
+                    int const y = scaled(s[c]);
+                    int const lo = std::min(y, zero_y < 0 ? y : zero_y);
+                    int const hi = std::max(y, zero_y < 0 ? y : zero_y);
+                    out += (r >= lo && r <= hi) ? cfg.bar_symbol : " ";
+                } else {
+                    out += ' ';
+                }
+            }
+            if (c + 1 < categories) {
+                out += ' ';
+            }
+        }
+    }
+    return out;
+}
+
+/**
+ * @brief 単一系列を垂直棒グラフに描画する (ASCII)
+ * @param series 値の列 (NaN で欠損を表せる)
+ * @param cfg    描画設定
+ * @return グラフ文字列。空系列や全 NaN なら空文字列
+ * @throws std::invalid_argument min が max より大きい場合
+ */
+inline auto vbar(std::vector<double> const& series, Config const& cfg = {}) -> std::string {
+    if (series.empty()) {
+        return {};
+    }
+    bool all_nan = true;
+    for (double const v : series) {
+        if (detail::is_number(v)) {
+            all_nan = false;
+            break;
+        }
+    }
+    if (all_nan) {
+        return {};
+    }
+    return vbar(std::vector<std::vector<double>>{series}, cfg);
+}
+
+/**
+ * @brief 複数系列を垂直棒グラフに描画する (Braille)
+ * @details
+ * 各値を Braille 文字でゼロラインから上方向に延ばした棒で表現する。
+ * Braille 文字は 1 文字あたり 4行のドットを持ち、細かい高さ表現が可能。
+ * 系列が複数の場合、カテゴリごとに系列分の棒を横に並べる。
+ * @param series 系列のリスト (NaN はスキップされる)
+ * @param cfg    描画設定
+ * @return グラフ文字列。空系列や全 NaN なら空文字列
+ * @throws std::invalid_argument min が max より大きい場合
+ */
+inline auto vbar_braille(std::vector<std::vector<double>> const& series, Config const& cfg = {})
+    -> std::string {
+    if (series.empty()) {
+        return {};
+    }
+
+    // NaN を無視した全体の最小/最大
+    auto const [data_min, data_max] = detail::min_max(series);
+    if (data_min > data_max) {
+        return {};
+    }
+    double const minimum = cfg.min.value_or(data_min);
+    double const maximum = cfg.max.value_or(data_max);
+    if (minimum > maximum) {
+        throw std::invalid_argument("The min value cannot exceed the max value.");
+    }
+    double const interval = maximum - minimum;
+
+    // セル行数 (各セルが 4 ピクセル行)
+    int const cell_rows = std::max(static_cast<int>(std::lround(cfg.height.value_or(10.0))), 1);
+    int const px_rows = cell_rows * 4;
+
+    // 値 → ピクセル行 (0 = 最大値, px_rows-1 = 最小値)
+    auto const scaled = [&](double const v) -> int {
+        if (interval <= 0.0) {
+            return (px_rows - 1) / 2;
+        }
+        return static_cast<int>(detail::py_round((maximum - v) / interval * (px_rows - 1)));
+    };
+    int const zero_py = (minimum <= 0.0 && maximum >= 0.0) ? scaled(0.0) : -1;
+
+    // カテゴリ数 (全系列の最大長)
+    std::size_t const categories = [&series] {
+        std::size_t n = 0;
+        for (auto const& s : series) {
+            n = std::max(n, s.size());
+        }
+        return n;
+    }();
+    // グリッドのピクセル列数 = 各カテゴリ (系列数×2 + 間隔1)
+    int const cell_cols = static_cast<int>((categories * (series.size() * 2 + 1) + 1) / 2);
+
+    detail::BrailleGrid grid{cell_rows, cell_cols};
+
+    // 各カテゴリの各系列の棒を描画 (系列 s はカテゴリ c 内のピクセル列
+    // c*(2*series.size()+1) + 2*s から 2 ピクセル幅)
+    for (std::size_t c = 0; c < categories; ++c) {
+        for (std::size_t si = 0; si < series.size(); ++si) {
+            auto const& s = series[si];
+            if (c >= s.size() || !detail::is_number(s[c])) {
+                continue;
+            }
+            int const py = scaled(s[c]);
+            int const lo = std::min(py, zero_py < 0 ? py : zero_py);
+            int const hi = std::max(py, zero_py < 0 ? py : zero_py);
+            int const x0 = static_cast<int>(c * (series.size() * 2 + 1) + si * 2);
+            for (int y = lo; y <= hi; ++y) {
+                grid.set_pixel(x0, y);
+                grid.set_pixel(x0 + 1, y);
+            }
+        }
+    }
+
+    // Braille グリッドを行に分割
+    std::string const braille_output = grid.render();
+    std::vector<std::string> grid_lines;
+    {
+        std::string line;
+        for (char const c : braille_output) {
+            if (c == '\n') {
+                grid_lines.push_back(line);
+                line.clear();
+            } else {
+                line += c;
+            }
+        }
+        if (!line.empty()) {
+            grid_lines.push_back(line);
+        }
+    }
+
+    // Y 軸ラベルと軸シンボル
+    int const offset = cfg.offset;
+    auto const& symbols = cfg.symbols;
+    int zero_line = -1;
+    if (minimum <= 0.0 && maximum >= 0.0) {
+        int const py_zero = scaled(0.0);
+        zero_line = cell_rows - 1 - py_zero / 4;
+    }
+
+    std::string out;
+    for (int i = 0; i < cell_rows; ++i) {
+        double const label_value = (cell_rows > 1)
+            ? maximum - (i * interval / (cell_rows - 1))
+            : maximum;
+        std::string const label = std::vformat(cfg.format, std::make_format_args(label_value));
+
+        std::string const axis_symbol = (i == zero_line) ? symbols[0] : symbols[1];
+
+        int const col = std::max(offset - static_cast<int>(label.size()), 0);
+        std::string left_part = std::string(col, ' ') + label;
+        int const pad = (offset - 1) - col - static_cast<int>(label.size());
+        if (pad > 0) {
+            left_part += std::string(pad, ' ');
+        }
+        left_part += axis_symbol;
+
+        if (i != 0) {
+            out += '\n';
+        }
+        out += left_part + grid_lines[static_cast<std::size_t>(i)];
+    }
+    return out;
+}
+
+/**
+ * @brief 単一系列を垂直棒グラフに描画する (Braille)
+ * @param series 値の列 (NaN で欠損を表せる)
+ * @param cfg    描画設定
+ * @return グラフ文字列。空系列や全 NaN なら空文字列
+ * @throws std::invalid_argument min が max より大きい場合
+ */
+inline auto vbar_braille(std::vector<double> const& series, Config const& cfg = {}) -> std::string {
+    if (series.empty()) {
+        return {};
+    }
+    bool all_nan = true;
+    for (double const v : series) {
+        if (detail::is_number(v)) {
+            all_nan = false;
+            break;
+        }
+    }
+    if (all_nan) {
+        return {};
+    }
+    return vbar_braille(std::vector<std::vector<double>>{series}, cfg);
 }
 
 /**
