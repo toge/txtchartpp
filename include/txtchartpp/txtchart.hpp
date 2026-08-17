@@ -549,12 +549,13 @@ inline auto bar(std::vector<std::vector<double>> const& series, Config const& cf
     }
     label_width += static_cast<std::size_t>(cfg.offset);
 
-    // バーの長さ (文字数)。値 0 は長さ 0
+    // バーの長さ (文字数)。値 0 は長さ 0。範囲外はクランプする (plot() と同様)
     auto const bar_len = [&](double const v) -> int {
         if (interval <= 0.0) {
             return 0;
         }
-        return static_cast<int>(detail::py_round(v / interval * cfg.height.value_or(interval)));
+        auto const cv = std::min(std::max(v, minimum), maximum);
+        return static_cast<int>(detail::py_round(cv / interval * cfg.height.value_or(interval)));
     };
 
     // カテゴリごとに系列分の行を積み重ねる
@@ -660,12 +661,13 @@ inline auto bar_braille(std::vector<std::vector<double>> const& series, Config c
     }
     label_width += static_cast<std::size_t>(cfg.offset);
 
-    // バーの長さ (半分セル単位)。Braille の 1 セル = 2 列
+    // バーの長さ (半分セル単位)。Braille の 1 セル = 2 列。範囲外はクランプする
     auto const half_len = [&](double const v) -> int {
         if (interval <= 0.0) {
             return 0;
         }
-        return static_cast<int>(detail::py_round(v / interval * cfg.height.value_or(interval) * 2.0));
+        auto const cv = std::min(std::max(v, minimum), maximum);
+        return static_cast<int>(detail::py_round(cv / interval * cfg.height.value_or(interval) * 2.0));
     };
 
     // カテゴリごとに系列分の行を積み重ねる
@@ -757,12 +759,13 @@ inline auto vbar(std::vector<std::vector<double>> const& series, Config const& c
     // 行数
     double const height = cfg.height.value_or(interval);
     int const rows = static_cast<int>(std::max(height, 1.0));
-    // 値 → 行位置 (0 = 最大値, rows-1 = 最小値)
+    // 値 → 行位置 (0 = 最大値, rows-1 = 最小値)。範囲外はクランプする (plot() と同様)
     auto const scaled = [&](double const v) -> int {
         if (interval <= 0.0) {
             return (rows - 1) / 2;
         }
-        return static_cast<int>(detail::py_round((maximum - v) / interval * (rows - 1)));
+        auto const cv = std::min(std::max(v, minimum), maximum);
+        return static_cast<int>(detail::py_round((maximum - cv) / interval * (rows - 1)));
     };
     // ゼロラインの行位置 (区間外の場合は -1)
     int const zero_y = (minimum <= 0.0 && maximum >= 0.0) ? scaled(0.0) : -1;
@@ -866,12 +869,13 @@ inline auto vbar_braille(std::vector<std::vector<double>> const& series, Config 
     int const cell_rows = std::max(static_cast<int>(std::lround(cfg.height.value_or(10.0))), 1);
     int const px_rows = cell_rows * 4;
 
-    // 値 → ピクセル行 (0 = 最大値, px_rows-1 = 最小値)
+    // 値 → ピクセル行 (0 = 最大値, px_rows-1 = 最小値)。範囲外はクランプする (plot() と同様)
     auto const scaled = [&](double const v) -> int {
         if (interval <= 0.0) {
             return (px_rows - 1) / 2;
         }
-        return static_cast<int>(detail::py_round((maximum - v) / interval * (px_rows - 1)));
+        auto const cv = std::min(std::max(v, minimum), maximum);
+        return static_cast<int>(detail::py_round((maximum - cv) / interval * (px_rows - 1)));
     };
     int const zero_py = (minimum <= 0.0 && maximum >= 0.0) ? scaled(0.0) : -1;
 
