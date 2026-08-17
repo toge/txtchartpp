@@ -20,7 +20,7 @@ asciichartpy 互換の ASCII 折れ線グラフ描画 C++ ヘッダオンリー�
 - **点字 (Braille) 対応** — `plot_braille()` で高解像度の折れ線描画
 - **棒グラフ対応** — 横棒 `bar()` / 縦棒 `vbar()` と、それぞれの Braille 版 (`bar_braille()` / `vbar_braille()`)
 - **ヘッダオンリー** — `#include "txtchartpp/txtchart.hpp"` のみ。本体に依存なし
-- **C++26** — `std::format`, 標準ライブラリのみ使用
+- **C++20** — `std::format`, 標準ライブラリのみ使用
 - **多系列対応** — 系列ごとに異なる色を付与可能 (ANSI)。棒グラフはグループ (横並び) で描画
 - **NaN 対応** — 欠損値を NaN で表現するとスキップされる
 

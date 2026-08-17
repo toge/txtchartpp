@@ -1,5 +1,5 @@
-build
-build_static
+build/
+build_static/
 save-commands.json
 
 # Prerequisites

@@ -218,5 +218,7 @@ tests.append(('''TEST_CASE("エラー: min > max → std::invalid_argument") {
 '''))
 
 out = hdr + '\n'.join(tests)
-open('/home/toge/src/txtchartpp/test/test_plot.cpp', 'w').write(out)
+import os
+p = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'test', 'test_plot.cpp')
+open(p, 'w').write(out)
 print("written", len(out), "bytes")

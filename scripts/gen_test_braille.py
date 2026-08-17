@@ -259,7 +259,9 @@ blocks.append('TEST_CASE("点字: エラー (min > max)") {\n'
     '    CHECK_THROWS_AS(plot_braille(std::vector<double>{1, 2, 3}, cfg), std::invalid_argument);\n'
     '}\n')
 
-open('/home/toge/src/txtchartpp/test/test_braille.cpp', 'w').write(hdr + '\n'.join(blocks))
+import os
+p = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'test', 'test_braille.cpp')
+open(p, 'w').write(hdr + '\n'.join(blocks))
 print("written")
 for name, val in cases:
     print("###", name, "###")

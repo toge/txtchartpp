@@ -7,6 +7,10 @@ C++ の bar_braille() / vbar_braille() と同じアルゴリズムを Python で
 
 from math import isnan, nan
 
+# ANSI color constants (matching txtchartpp)
+red = '\033[31m'
+blue = '\033[34m'
+
 def utf8(cp):
     if cp < 0x80: return bytes([cp])
     if cp < 0x800: return bytes([0xc0|(cp>>6), 0x80|(cp&0x3f)])
@@ -44,6 +48,7 @@ def bar_braille(series, cfg=None):
     offset = cfg.get('offset', 3)
     bar_sym = cfg.get('bar_symbol', '█')
     height = cfg.get('height', interval)
+    colors = cfg.get('colors', [])
 
     # ラベルの最大幅
     label_width = 0
@@ -60,18 +65,21 @@ def bar_braille(series, cfg=None):
 
     out_lines = []
     for c in range(categories):
-        for s in series:
+        for si, s in enumerate(series):
             v = s[c] if c < len(s) else nan
             if isnan(v):
                 out_lines.append(' ' * label_width)
                 continue
             label = fmt.format(v)
             row = ' ' * (label_width - len(label)) + label
+            color = colors[si % len(colors)] if colors else ''
             n = half_len(v)
-            row += bar_sym * (n // 2)
+            bar_str = bar_sym * (n // 2)
             if n % 2:
-                row += '▌'  # 左半分のブロック
-            out_lines.append(row)
+                bar_str += '▌'  # 左半分のブロック
+            if color:
+                bar_str = color + bar_str + '\033[0m'
+            out_lines.append(row + bar_str)
     return '\n'.join(out_lines)
 
 
@@ -108,8 +116,9 @@ def vbar_braille(series, cfg=None):
     cell_cols = (categories * (len(series) * 2 + 1) + 1) // 2
 
     cells = [0] * (cell_cols * cell_rows)
+    cell_colors = [None] * (cell_cols * cell_rows)
 
-    def set_pixel(x, y):
+    def set_pixel(x, y, color=None):
         if y < 0 or y >= px_rows:
             return
         cx = x // 2
@@ -119,7 +128,13 @@ def vbar_braille(series, cfg=None):
         dy = 3 - (y % 4)
         dx = x % 2
         bit = LEFT_BITS[dy] if dx == 0 else RIGHT_BITS[dy]
-        cells[cy * cell_cols + cx] |= bit
+        idx = cy * cell_cols + cx
+        cells[idx] |= bit
+        if color:
+            cell_colors[idx] = color
+
+    RESET = '\033[0m'
+    colors = cfg.get('colors', [])
 
     for c in range(categories):
         for si, s in enumerate(series):
@@ -129,16 +144,21 @@ def vbar_braille(series, cfg=None):
             lo = min(py, zero_py if zero_py >= 0 else py)
             hi = max(py, zero_py if zero_py >= 0 else py)
             x0 = c * (len(series) * 2 + 1) + si * 2
+            color = colors[si % len(colors)] if colors else None
             for y in range(lo, hi + 1):
-                set_pixel(x0, y)
-                set_pixel(x0 + 1, y)
+                set_pixel(x0, y, color)
+                set_pixel(x0 + 1, y, color)
 
     lines = []
     for cy in range(cell_rows - 1, -1, -1):
         line = ''
         for cx in range(cell_cols):
             b = cells[cy * cell_cols + cx]
-            line += chr(0x2800 + b)
+            ch = chr(0x2800 + b)
+            col = cell_colors[cy * cell_cols + cx]
+            if col:
+                ch = col + ch + RESET
+            line += ch
         lines.append(line)
 
     # Y 軸ラベルと軸シンボル
@@ -190,16 +210,18 @@ def cpp_literal(name, val):
 nanv = nan
 
 cases = [
-    ("bbar_simple", bar_braille([1, 2, 3, 4])),
-    ("bbar_neg",    bar_braille([-3, -2, -1, 0, 1, 2, 3])),
-    ("bbar_multi",  bar_braille([[10, 20, 30], [40, 30, 20]], {'height': 10})),
-    ("bbar_nan",    bar_braille([1, 2, nanv, 4])),
-    ("bbar_flat",   bar_braille([2.0, 2.0, 2.0])),
+    ("bbar_simple",  bar_braille([1, 2, 3, 4])),
+    ("bbar_neg",     bar_braille([-3, -2, -1, 0, 1, 2, 3])),
+    ("bbar_multi",   bar_braille([[10, 20, 30], [40, 30, 20]], {'height': 10})),
+    ("bbar_nan",     bar_braille([1, 2, nanv, 4])),
+    ("bbar_flat",    bar_braille([2.0, 2.0, 2.0])),
+    ("bbar_colors",  bar_braille([[10, 20, 30], [40, 30, 20]], {'height': 10, 'colors': [red, blue]})),
     ("bvbar_simple", vbar_braille([1, 2, 3, 4])),
     ("bvbar_neg",    vbar_braille([-3, -2, -1, 0, 1, 2, 3])),
     ("bvbar_multi",  vbar_braille([[10, 20, 30], [40, 30, 20]], {'height': 4})),
     ("bvbar_nan",    vbar_braille([1, 2, nanv, 4])),
     ("bvbar_flat",   vbar_braille([2.0, 2.0, 2.0])),
+    ("bvbar_colors", vbar_braille([[10, 20, 30], [40, 30, 20]], {'height': 4, 'colors': [red, blue]})),
 ]
 
 hdr = '''/**
@@ -266,14 +288,25 @@ add_case("点字横棒: 一定値",
     cpp_literal('bbar_flat', cases[4][1]),
     'bar_braille(series) == expected_bbar_flat')
 
+add_case("点字横棒: 多系列色付き",
+    '    auto const series = std::vector<std::vector<double>>{\n'
+    '        {10, 20, 30},\n'
+    '        {40, 30, 20},\n'
+    '    };\n'
+    '    auto cfg = Config{};\n'
+    '    cfg.height = 10.0;\n'
+    '    cfg.colors = {red, blue};\n',
+    cpp_literal('bbar_colors', cases[5][1]),
+    'bar_braille(series, cfg) == expected_bbar_colors')
+
 add_case("点字縦棒: 基本",
     '    auto const series = std::vector<double>{1, 2, 3, 4};\n',
-    cpp_literal('bvbar_simple', cases[5][1]),
+    cpp_literal('bvbar_simple', cases[6][1]),
     'vbar_braille(series) == expected_bvbar_simple')
 
 add_case("点字縦棒: 負値",
     '    auto const series = std::vector<double>{-3, -2, -1, 0, 1, 2, 3};\n',
-    cpp_literal('bvbar_neg', cases[6][1]),
+    cpp_literal('bvbar_neg', cases[7][1]),
     'vbar_braille(series) == expected_bvbar_neg')
 
 add_case("点字縦棒: 多系列",
@@ -283,18 +316,29 @@ add_case("点字縦棒: 多系列",
     '    };\n'
     '    auto cfg = Config{};\n'
     '    cfg.height = 4.0;\n',
-    cpp_literal('bvbar_multi', cases[7][1]),
+    cpp_literal('bvbar_multi', cases[8][1]),
     'vbar_braille(series, cfg) == expected_bvbar_multi')
 
 add_case("点字縦棒: NaN スキップ",
     '    auto const series = std::vector<double>{1, 2, nan_value, 4};\n',
-    cpp_literal('bvbar_nan', cases[8][1]),
+    cpp_literal('bvbar_nan', cases[9][1]),
     'vbar_braille(series) == expected_bvbar_nan')
 
 add_case("点字縦棒: 一定値",
     '    auto const series = std::vector<double>{2.0, 2.0, 2.0};\n',
-    cpp_literal('bvbar_flat', cases[9][1]),
+    cpp_literal('bvbar_flat', cases[10][1]),
     'vbar_braille(series) == expected_bvbar_flat')
+
+add_case("点字縦棒: 多系列色付き",
+    '    auto const series = std::vector<std::vector<double>>{\n'
+    '        {10, 20, 30},\n'
+    '        {40, 30, 20},\n'
+    '    };\n'
+    '    auto cfg = Config{};\n'
+    '    cfg.height = 4.0;\n'
+    '    cfg.colors = {red, blue};\n',
+    cpp_literal('bvbar_colors', cases[11][1]),
+    'vbar_braille(series, cfg) == expected_bvbar_colors')
 
 add_case("点字横棒: 空系列 → 空文字列",
     '', '',
@@ -334,8 +378,10 @@ blocks.append('TEST_CASE("点字縦棒: エラー (min > max)") {\n'
     '    CHECK_THROWS_AS(vbar_braille(std::vector<double>{1, 2, 3}, cfg), std::invalid_argument);\n'
     '}\n')
 
+import os
 out = hdr + '\n'.join(blocks)
-open('/home/toge/src/txtchartpp/test/test_bar_braille.cpp', 'w').write(out)
+p = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'test', 'test_bar_braille.cpp')
+open(p, 'w').write(out)
 print("written", len(out), "bytes")
 for name, val in cases:
     print("###", name, "###")

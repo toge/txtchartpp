@@ -7,6 +7,10 @@ C++ の bar() / vbar() と同じアルゴリズムを Python で実装し、
 
 from math import isnan, nan
 
+# ANSI color constants (matching txtchartpp)
+red = '\033[31m'
+blue = '\033[34m'
+
 def utf8(cp):
     if cp < 0x80: return bytes([cp])
     if cp < 0x800: return bytes([0xc0|(cp>>6), 0x80|(cp&0x3f)])
@@ -42,6 +46,7 @@ def bar(series, cfg=None):
     offset = cfg.get('offset', 3)
     bar_sym = cfg.get('bar_symbol', '█')
     height = cfg.get('height', interval)
+    colors = cfg.get('colors', [])
 
     # ラベルの最大幅
     label_width = 0
@@ -58,15 +63,18 @@ def bar(series, cfg=None):
 
     out_lines = []
     for c in range(categories):
-        for s in series:
+        for si, s in enumerate(series):
             v = s[c] if c < len(s) else nan
             if isnan(v):
                 out_lines.append(' ' * label_width)
                 continue
             label = fmt.format(v)
             row = ' ' * (label_width - len(label)) + label
-            row += bar_sym * bar_len(v)
-            out_lines.append(row)
+            color = colors[si % len(colors)] if colors else ''
+            bar_str = bar_sym * bar_len(v)
+            if color:
+                bar_str = color + bar_str + '\033[0m'
+            out_lines.append(row + bar_str)
     return '\n'.join(out_lines)
 
 def vbar(series, cfg=None):
@@ -104,6 +112,7 @@ def vbar(series, cfg=None):
     offset = cfg.get('offset', 3)
     symbols = cfg.get('symbols', ['┼', '┤', '╶', '╴', '─', '╰', '╭', '╮', '╯', '│'])
     bar_sym = cfg.get('bar_symbol', '█')
+    colors = cfg.get('colors', [])
 
     out_lines = []
     for r in range(rows):
@@ -112,12 +121,16 @@ def vbar(series, cfg=None):
         line = ' ' * max(offset - len(label), 0) + label
         line += symbols[0] if r == zero_y else symbols[1]
         for c in range(categories):
-            for s in series:
+            for si, s in enumerate(series):
                 if c < len(s) and not isnan(s[c]):
                     y = scaled(s[c])
                     lo = min(y, zero_y if zero_y >= 0 else y)
                     hi = max(y, zero_y if zero_y >= 0 else y)
-                    line += bar_sym if lo <= r <= hi else ' '
+                    ch = bar_sym if lo <= r <= hi else ' '
+                    color = colors[si % len(colors)] if colors else ''
+                    if color:
+                        ch = color + ch + '\033[0m'
+                    line += ch
                 else:
                     line += ' '
             if c + 1 < categories:
@@ -154,11 +167,13 @@ cases = [
     ("bar_multi",   bar([[10, 20, 30], [40, 30, 20]], {'height': 10})),
     ("bar_nan",     bar([1, 2, nanv, 4])),
     ("bar_flat",    bar([2.0, 2.0, 2.0])),
+    ("bar_colors",  bar([[10, 20, 30], [40, 30, 20]], {'height': 10, 'colors': [red, blue]})),
     ("vbar_simple", vbar([1, 2, 3, 4])),
     ("vbar_neg",    vbar([-3, -2, -1, 0, 1, 2, 3])),
     ("vbar_multi",  vbar([[10, 20, 30], [40, 30, 20]], {'height': 6})),
     ("vbar_nan",    vbar([1, 2, nanv, 4])),
     ("vbar_flat",   vbar([2.0, 2.0, 2.0])),
+    ("vbar_colors", vbar([[10, 20, 30], [40, 30, 20]], {'height': 6, 'colors': [red, blue]})),
 ]
 
 hdr = '''/**
@@ -225,14 +240,25 @@ add_case("横棒: 一定値",
     cpp_literal('bar_flat', cases[4][1]),
     'bar(series) == expected_bar_flat')
 
+add_case("横棒: 多系列色付き",
+    '    auto const series = std::vector<std::vector<double>>{\n'
+    '        {10, 20, 30},\n'
+    '        {40, 30, 20},\n'
+    '    };\n'
+    '    auto cfg = Config{};\n'
+    '    cfg.height = 10.0;\n'
+    '    cfg.colors = {red, blue};\n',
+    cpp_literal('bar_colors', cases[5][1]),
+    'bar(series, cfg) == expected_bar_colors')
+
 add_case("縦棒: 基本",
     '    auto const series = std::vector<double>{1, 2, 3, 4};\n',
-    cpp_literal('vbar_simple', cases[5][1]),
+    cpp_literal('vbar_simple', cases[6][1]),
     'vbar(series) == expected_vbar_simple')
 
 add_case("縦棒: 負値",
     '    auto const series = std::vector<double>{-3, -2, -1, 0, 1, 2, 3};\n',
-    cpp_literal('vbar_neg', cases[6][1]),
+    cpp_literal('vbar_neg', cases[7][1]),
     'vbar(series) == expected_vbar_neg')
 
 add_case("縦棒: 多系列",
@@ -242,18 +268,29 @@ add_case("縦棒: 多系列",
     '    };\n'
     '    auto cfg = Config{};\n'
     '    cfg.height = 6.0;\n',
-    cpp_literal('vbar_multi', cases[7][1]),
+    cpp_literal('vbar_multi', cases[8][1]),
     'vbar(series, cfg) == expected_vbar_multi')
 
 add_case("縦棒: NaN スキップ",
     '    auto const series = std::vector<double>{1, 2, nan_value, 4};\n',
-    cpp_literal('vbar_nan', cases[8][1]),
+    cpp_literal('vbar_nan', cases[9][1]),
     'vbar(series) == expected_vbar_nan')
 
 add_case("縦棒: 一定値",
     '    auto const series = std::vector<double>{2.0, 2.0, 2.0};\n',
-    cpp_literal('vbar_flat', cases[9][1]),
+    cpp_literal('vbar_flat', cases[10][1]),
     'vbar(series) == expected_vbar_flat')
+
+add_case("縦棒: 多系列色付き",
+    '    auto const series = std::vector<std::vector<double>>{\n'
+    '        {10, 20, 30},\n'
+    '        {40, 30, 20},\n'
+    '    };\n'
+    '    auto cfg = Config{};\n'
+    '    cfg.height = 6.0;\n'
+    '    cfg.colors = {red, blue};\n',
+    cpp_literal('vbar_colors', cases[11][1]),
+    'vbar(series, cfg) == expected_vbar_colors')
 
 # エッジケース
 add_case("横棒: 空系列 → 空文字列",
@@ -294,8 +331,10 @@ blocks.append('TEST_CASE("縦棒: エラー (min > max)") {\n'
     '    CHECK_THROWS_AS(vbar(std::vector<double>{1, 2, 3}, cfg), std::invalid_argument);\n'
     '}\n')
 
+import os
 out = hdr + '\n'.join(blocks)
-open('/home/toge/src/txtchartpp/test/test_bar.cpp', 'w').write(out)
+p = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'test', 'test_bar.cpp')
+open(p, 'w').write(out)
 print("written", len(out), "bytes")
 for name, val in cases:
     print("###", name, "###")

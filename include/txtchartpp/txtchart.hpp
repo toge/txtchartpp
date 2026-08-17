@@ -25,6 +25,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <vector>
 
 namespace txtchart {
@@ -99,7 +100,7 @@ inline auto py_round(double const x) -> double {
 }
 
 /** @brief 全体の最小値/最大値を求める (NaN は無視) */
-inline auto min_max(std::vector<std::vector<double>> const& series)
+[[nodiscard]] inline auto min_max(std::vector<std::vector<double>> const& series)
     -> std::pair<double, double> {
     double minimum = std::numeric_limits<double>::max();
     double maximum = std::numeric_limits<double>::lowest();
@@ -115,12 +116,10 @@ inline auto min_max(std::vector<std::vector<double>> const& series)
     return {minimum, maximum};
 }
 
-/**
- * @brief コードポイントを UTF-8 バイト列にエンコードする
- */
-inline auto utf8_encode(char32_t const cp) -> std::string {
+/** @brief コードポイントを UTF-8 バイト列にエンコードする */
+[[nodiscard]] inline auto utf8_encode(char32_t const cp) -> std::string {
     if (cp < 0x80) {
-        return std::string(1, static_cast<char>(cp));
+        return std::string{static_cast<char>(cp)};
     }
     if (cp < 0x800) {
         return std::string{
@@ -144,16 +143,20 @@ inline auto utf8_encode(char32_t const cp) -> std::string {
 }
 
 /** @brief Braille セル内のドット位置 (0=左上, 1=左2, 2=左3, 3=左4, 4=右上, 5=右2, 6=右3, 7=右4) → ビット */
-constexpr int braille_dot_bits[8] = {
+constexpr std::array<int, 8> braille_dot_bits = {
     0x01, 0x02, 0x04, 0x40,
     0x08, 0x10, 0x20, 0x80,
 };
+
+/** @brief ANSI 色付き文字列を生成する (color が空ならそのまま返す) — BrailleGrid::render で使用 */
+[[nodiscard]] inline auto colorize(std::string const& ch, std::string_view const color) -> std::string;
 
 /** @brief 1セル=2列×4行のピクセルグリッドでドットを立てる */
 struct BrailleGrid {
     int cell_rows = 0;
     int cell_cols = 0;
     std::vector<unsigned char> cells;
+    std::vector<std::string_view> cell_colors; // セルごとの色 (空なら色なし)
 
     BrailleGrid(int const rows, int const cols)
         : cell_rows(rows), cell_cols(cols), cells(static_cast<std::size_t>(rows * cols), 0) {}
@@ -169,16 +172,41 @@ struct BrailleGrid {
         }
         int const cy = py / 4;
         int const dot = (3 - (py % 4)) + (px % 2) * 4; // 左列 0-3, 右列 4-7 (上下反転補正)
-        cells[static_cast<std::size_t>(cy) * cell_cols + cx] |= braille_dot_bits[dot];
+        cells[static_cast<std::size_t>(cy) * cell_cols + cx] |= braille_dot_bits[static_cast<std::size_t>(dot)];
+    }
+
+    /** @brief ピクセル座標 (px, py) にドットを立てる (色付き) */
+    void set_pixel(int const px, int const py, std::string_view const color) {
+        if (py < 0 || py >= cell_rows * 4) {
+            return;
+        }
+        int const cx = px / 2;
+        if (cx >= cell_cols) {
+            return;
+        }
+        int const cy = py / 4;
+        int const dot = (3 - (py % 4)) + (px % 2) * 4;
+        std::size_t const idx = static_cast<std::size_t>(cy) * cell_cols + cx;
+        cells[idx] |= braille_dot_bits[static_cast<std::size_t>(dot)];
+        if (cell_colors.empty()) {
+            cell_colors.assign(cells.size(), std::string_view{});
+        }
+        cell_colors[idx] = color;
     }
 
     /** @brief セルグリッドを UTF-8 の Braille 文字列に組み立てる (上から下) */
-    auto render() const -> std::string {
+    [[nodiscard]] auto render() const -> std::string {
         std::string out;
         for (int cy = cell_rows - 1; cy >= 0; --cy) {
             for (int cx = 0; cx < cell_cols; ++cx) {
-                unsigned char const b = cells[static_cast<std::size_t>(cy) * cell_cols + cx];
-                out += utf8_encode(static_cast<char32_t>(0x2800 + b));
+                std::size_t const idx = static_cast<std::size_t>(cy) * cell_cols + cx;
+                unsigned char const b = cells[idx];
+                std::string const ch = utf8_encode(static_cast<char32_t>(0x2800 + b));
+                if (!cell_colors.empty() && !cell_colors[idx].empty()) {
+                    out += detail::colorize(ch, cell_colors[idx]);
+                } else {
+                    out += ch;
+                }
             }
             if (cy != 0) {
                 out += '\n';
@@ -187,6 +215,64 @@ struct BrailleGrid {
         return out;
     }
 };
+
+/** @brief 単系列を複数系列に昇格する (空/全 NaN の場合は std::nullopt) */
+[[nodiscard]] inline auto to_multi(std::vector<double> const& s)
+    -> std::optional<std::vector<std::vector<double>>> {
+    if (s.empty()) {
+        return std::nullopt;
+    }
+    for (double const v : s) {
+        if (is_number(v)) {
+            return std::vector<std::vector<double>>{s};
+        }
+    }
+    return std::nullopt; // all NaN
+}
+
+/** @brief 全系列の最大長 (NaN を問わず) */
+[[nodiscard]] inline auto max_categories(std::vector<std::vector<double>> const& series) -> std::size_t {
+    std::size_t n = 0;
+    for (auto const& s : series) {
+        n = std::max(n, s.size());
+    }
+    return n;
+}
+
+/** @brief 全系列の数値でフォーマットしたラベルの最大幅 */
+[[nodiscard]] inline auto max_label_width(std::vector<std::vector<double>> const& series,
+                                          std::string const& format) -> std::size_t {
+    std::size_t label_width = 0;
+    for (auto const& s : series) {
+        for (double const v : s) {
+            if (!is_number(v)) {
+                continue;
+            }
+            std::string const label = std::vformat(format, std::make_format_args(v));
+            label_width = std::max(label_width, label.size());
+        }
+    }
+    return label_width;
+}
+
+/** @brief 最小/最大/interval を計算する (min>max なら例外) */
+inline auto resolve_min_max(double const data_min, double const data_max, Config const& cfg)
+    -> std::tuple<double, double, double> {
+    double const minimum = cfg.min.value_or(data_min);
+    double const maximum = cfg.max.value_or(data_max);
+    if (minimum > maximum) {
+        throw std::invalid_argument("The min value cannot exceed the max value.");
+    }
+    return {minimum, maximum, maximum - minimum};
+}
+
+/** @brief ANSI 色付き文字列を生成する (color が空ならそのまま返す) */
+[[nodiscard]] inline auto colorize(std::string const& ch, std::string_view const color) -> std::string {
+    if (color.empty()) {
+        return ch;
+    }
+    return std::string(color) + ch + std::string(reset);
+}
 
 } // namespace detail
 
@@ -208,21 +294,13 @@ inline auto plot(std::vector<std::vector<double>> const& series, Config const& c
     // [5]=下がり [6]=上がり [7]=上 [8]=下 [9]=垂直
     auto const& symbols = cfg.symbols;
 
-    // NaN を無視した全体の最小/最大
+    // NaN を無視した全体の最小/最大 (最小 > 最大もしくは全 NaN なら空文字列)
     auto const [data_min, data_max] = detail::min_max(series);
-    // 全て NaN (または空系列) の場合は空文字列を返す
     if (data_min > data_max) {
         return {};
     }
 
-    double const minimum = cfg.min.value_or(data_min);
-    double const maximum = cfg.max.value_or(data_max);
-
-    if (minimum > maximum) {
-        throw std::invalid_argument("The min value cannot exceed the max value.");
-    }
-
-    double const interval = maximum - minimum;
+    auto const [minimum, maximum, interval] = detail::resolve_min_max(data_min, data_max, cfg);
     int const offset = cfg.offset;
     double const height = cfg.height.value_or(interval);
     double const ratio = interval > 0.0 ? height / interval : 1.0;
@@ -272,12 +350,6 @@ inline auto plot(std::vector<std::vector<double>> const& series, Config const& c
     for (std::size_t i = 0; i < series.size(); ++i) {
         std::string_view const color = cfg.colors.empty() ? std::string_view{}
                                                           : cfg.colors[i % cfg.colors.size()];
-        auto const colored = [color](std::string const& ch) -> std::string {
-            if (color.empty()) {
-                return ch;
-            }
-            return std::string(color) + ch + std::string(reset);
-        };
 
         auto const& s = series[i];
         for (std::size_t x = 0; x + 1 < s.size(); ++x) {
@@ -289,12 +361,12 @@ inline auto plot(std::vector<std::vector<double>> const& series, Config const& c
             }
             if (!detail::is_number(v0)) {
                 result[static_cast<std::size_t>(rows - scaled(v1))][x + static_cast<std::size_t>(offset)] =
-                    colored(symbols[2]);
+                    detail::colorize(symbols[2], color);
                 continue;
             }
             if (!detail::is_number(v1)) {
                 result[static_cast<std::size_t>(rows - scaled(v0))][x + static_cast<std::size_t>(offset)] =
-                    colored(symbols[3]);
+                    detail::colorize(symbols[3], color);
                 continue;
             }
 
@@ -303,20 +375,20 @@ inline auto plot(std::vector<std::vector<double>> const& series, Config const& c
 
             if (y0 == y1) {
                 result[static_cast<std::size_t>(rows - y0)][x + static_cast<std::size_t>(offset)] =
-                    colored(symbols[4]);
+                    detail::colorize(symbols[4], color);
                 continue;
             }
 
             result[static_cast<std::size_t>(rows - y1)][x + static_cast<std::size_t>(offset)] =
-                (y0 > y1) ? colored(symbols[5]) : colored(symbols[6]);
+                (y0 > y1) ? detail::colorize(symbols[5], color) : detail::colorize(symbols[6], color);
             result[static_cast<std::size_t>(rows - y0)][x + static_cast<std::size_t>(offset)] =
-                (y0 > y1) ? colored(symbols[7]) : colored(symbols[8]);
+                (y0 > y1) ? detail::colorize(symbols[7], color) : detail::colorize(symbols[8], color);
 
             int const start = std::min(y0, y1) + 1;
             int const end = std::max(y0, y1);
             for (int y = start; y < end; ++y) {
                 result[static_cast<std::size_t>(rows - y)][x + static_cast<std::size_t>(offset)] =
-                    colored(symbols[9]);
+                    detail::colorize(symbols[9], color);
             }
         }
     }
@@ -347,20 +419,11 @@ inline auto plot(std::vector<std::vector<double>> const& series, Config const& c
  * @throws std::invalid_argument min が max より大きい場合
  */
 inline auto plot(std::vector<double> const& series, Config const& cfg = {}) -> std::string {
-    if (series.empty()) {
+    auto const multi = detail::to_multi(series);
+    if (!multi) {
         return {};
     }
-    bool all_nan = true;
-    for (double const v : series) {
-        if (detail::is_number(v)) {
-            all_nan = false;
-            break;
-        }
-    }
-    if (all_nan) {
-        return {};
-    }
-    return plot(std::vector<std::vector<double>>{series}, cfg);
+    return plot(*multi, cfg);
 }
 
 /**
@@ -379,28 +442,20 @@ inline auto plot_braille(std::vector<std::vector<double>> const& series, Config 
         return {};
     }
 
-    // NaN を無視した全体の最小/最大
+    // NaN を無視した全体の最小/最大 (最小 > 最大もしくは全 NaN なら空文字列)
     auto const [data_min, data_max] = detail::min_max(series);
-    // 全て NaN (または空系列) の場合は空文字列を返す
     if (data_min > data_max) {
         return {};
     }
-    double const minimum = cfg.min.value_or(data_min);
-    double const maximum = cfg.max.value_or(data_max);
-    if (minimum > maximum) {
-        throw std::invalid_argument("The min value cannot exceed the max value.");
-    }
-    double const interval = maximum - minimum;
+
+    auto const [minimum, maximum, interval] = detail::resolve_min_max(data_min, data_max, cfg);
 
     // 高さはセル行数。各セルが 4 ピクセル行に相当する
     int const cell_rows = std::max(static_cast<int>(std::lround(cfg.height.value_or(10.0))), 1);
     int const px_rows = cell_rows * 4;
 
     // 幅は最長系列の長さ。各データ点が 1 ピクセル列 = 0.5 セル
-    std::size_t max_len = 0;
-    for (auto const& s : series) {
-        max_len = std::max(max_len, s.size());
-    }
+    std::size_t const max_len = detail::max_categories(series);
     if (max_len == 0) {
         return {};
     }
@@ -420,7 +475,10 @@ inline auto plot_braille(std::vector<std::vector<double>> const& series, Config 
 
     detail::BrailleGrid grid{cell_rows, cell_cols};
 
-    for (auto const& s : series) {
+    for (std::size_t si = 0; si < series.size(); ++si) {
+        auto const& s = series[si];
+        std::string_view const color = cfg.colors.empty() ? std::string_view{}
+                                                          : cfg.colors[si % cfg.colors.size()];
         // 各点のピクセル行を求める (NaN は -1)
         std::vector<int> ys(s.size(), -1);
         for (std::size_t i = 0; i < s.size(); ++i) {
@@ -433,14 +491,14 @@ inline auto plot_braille(std::vector<std::vector<double>> const& series, Config 
             if (ys[i] < 0) {
                 continue;
             }
-            grid.set_pixel(static_cast<int>(i), ys[i]);
+            grid.set_pixel(static_cast<int>(i), ys[i], color);
             if (i + 1 < s.size() && ys[i + 1] >= 0) {
                 int const lo = std::min(ys[i], ys[i + 1]);
                 int const hi = std::max(ys[i], ys[i + 1]);
                 for (int y = lo; y <= hi; ++y) {
-                    grid.set_pixel(static_cast<int>(i), y);
+                    grid.set_pixel(static_cast<int>(i), y, color);
                 }
-                grid.set_pixel(static_cast<int>(i + 1), ys[i + 1]);
+                grid.set_pixel(static_cast<int>(i + 1), ys[i + 1], color);
             }
         }
     }
@@ -521,32 +579,14 @@ inline auto bar(std::vector<std::vector<double>> const& series, Config const& cf
     if (data_min > data_max) {
         return {};
     }
-    double const minimum = cfg.min.value_or(data_min);
-    double const maximum = cfg.max.value_or(data_max);
-    if (minimum > maximum) {
-        throw std::invalid_argument("The min value cannot exceed the max value.");
-    }
-    double const interval = maximum - minimum;
+
+    auto const [minimum, maximum, interval] = detail::resolve_min_max(data_min, data_max, cfg);
 
     // カテゴリ数 (全系列の最大長)
-    std::size_t const categories = [&series] {
-        std::size_t n = 0;
-        for (auto const& s : series) {
-            n = std::max(n, s.size());
-        }
-        return n;
-    }();
+    std::size_t const categories = detail::max_categories(series);
 
-    // ラベルの最大幅 (全系列の全値を書式化して最大幅を求める)
-    std::size_t label_width = 0;
-    for (auto const& s : series) {
-        for (double const v : s) {
-            if (detail::is_number(v)) {
-                std::string const label = std::vformat(cfg.format, std::make_format_args(v));
-                label_width = std::max(label_width, label.size());
-            }
-        }
-    }
+    // ラベルの最大幅
+    std::size_t label_width = detail::max_label_width(series, cfg.format);
     label_width += static_cast<std::size_t>(cfg.offset);
 
     // バーの長さ (文字数)。値 0 は長さ 0。範囲外はクランプする (plot() と同様)
@@ -573,14 +613,17 @@ inline auto bar(std::vector<std::vector<double>> const& series, Config const& cf
             if (detail::is_number(v)) {
                 std::string const label = std::vformat(cfg.format, std::make_format_args(v));
                 row += std::string(label_width - label.size(), ' ') + label;
+                std::string_view const color = cfg.colors.empty() ? std::string_view{}
+                                                                  : cfg.colors[si % cfg.colors.size()];
+                std::string bar_str;
                 int const len = bar_len(v);
                 for (int i = 0; i < len; ++i) {
-                    row += cfg.bar_symbol;
+                    bar_str += cfg.bar_symbol;
                 }
+                out += row + detail::colorize(bar_str, color);
             } else {
-                row += std::string(label_width, ' ');
+                out += std::string(label_width, ' ');
             }
-            out += row;
         }
     }
     return out;
@@ -594,20 +637,11 @@ inline auto bar(std::vector<std::vector<double>> const& series, Config const& cf
  * @throws std::invalid_argument min が max より大きい場合
  */
 inline auto bar(std::vector<double> const& series, Config const& cfg = {}) -> std::string {
-    if (series.empty()) {
+    auto const multi = detail::to_multi(series);
+    if (!multi) {
         return {};
     }
-    bool all_nan = true;
-    for (double const v : series) {
-        if (detail::is_number(v)) {
-            all_nan = false;
-            break;
-        }
-    }
-    if (all_nan) {
-        return {};
-    }
-    return bar(std::vector<std::vector<double>>{series}, cfg);
+    return bar(*multi, cfg);
 }
 
 /**
@@ -633,32 +667,14 @@ inline auto bar_braille(std::vector<std::vector<double>> const& series, Config c
     if (data_min > data_max) {
         return {};
     }
-    double const minimum = cfg.min.value_or(data_min);
-    double const maximum = cfg.max.value_or(data_max);
-    if (minimum > maximum) {
-        throw std::invalid_argument("The min value cannot exceed the max value.");
-    }
-    double const interval = maximum - minimum;
+
+    auto const [minimum, maximum, interval] = detail::resolve_min_max(data_min, data_max, cfg);
 
     // カテゴリ数 (全系列の最大長)
-    std::size_t const categories = [&series] {
-        std::size_t n = 0;
-        for (auto const& s : series) {
-            n = std::max(n, s.size());
-        }
-        return n;
-    }();
+    std::size_t const categories = detail::max_categories(series);
 
-    // ラベルの最大幅 (全系列の全値を書式化して最大幅を求める)
-    std::size_t label_width = 0;
-    for (auto const& s : series) {
-        for (double const v : s) {
-            if (detail::is_number(v)) {
-                std::string const label = std::vformat(cfg.format, std::make_format_args(v));
-                label_width = std::max(label_width, label.size());
-            }
-        }
-    }
+    // ラベルの最大幅
+    std::size_t label_width = detail::max_label_width(series, cfg.format);
     label_width += static_cast<std::size_t>(cfg.offset);
 
     // バーの長さ (半分セル単位)。Braille の 1 セル = 2 列。範囲外はクランプする
@@ -685,19 +701,22 @@ inline auto bar_braille(std::vector<std::vector<double>> const& series, Config c
             if (detail::is_number(v)) {
                 std::string const label = std::vformat(cfg.format, std::make_format_args(v));
                 row += std::string(label_width - label.size(), ' ') + label;
+                std::string_view const color = cfg.colors.empty() ? std::string_view{}
+                                                                  : cfg.colors[si % cfg.colors.size()];
+                std::string bar_str;
                 int const len = half_len(v);
                 int const full = len / 2;
                 int const half = len % 2;
                 for (int i = 0; i < full; ++i) {
-                    row += cfg.bar_symbol;
+                    bar_str += cfg.bar_symbol;
                 }
                 if (half != 0) {
-                    row += "▌";  // 左半分のブロック
+                    bar_str += "▌";  // 左半分のブロック
                 }
+                out += row + detail::colorize(bar_str, color);
             } else {
-                row += std::string(label_width, ' ');
+                out += std::string(label_width, ' ');
             }
-            out += row;
         }
     }
     return out;
@@ -711,20 +730,11 @@ inline auto bar_braille(std::vector<std::vector<double>> const& series, Config c
  * @throws std::invalid_argument min が max より大きい場合
  */
 inline auto bar_braille(std::vector<double> const& series, Config const& cfg = {}) -> std::string {
-    if (series.empty()) {
+    auto const multi = detail::to_multi(series);
+    if (!multi) {
         return {};
     }
-    bool all_nan = true;
-    for (double const v : series) {
-        if (detail::is_number(v)) {
-            all_nan = false;
-            break;
-        }
-    }
-    if (all_nan) {
-        return {};
-    }
-    return bar_braille(std::vector<std::vector<double>>{series}, cfg);
+    return bar_braille(*multi, cfg);
 }
 
 /**
@@ -749,12 +759,8 @@ inline auto vbar(std::vector<std::vector<double>> const& series, Config const& c
     if (data_min > data_max) {
         return {};
     }
-    double const minimum = cfg.min.value_or(data_min);
-    double const maximum = cfg.max.value_or(data_max);
-    if (minimum > maximum) {
-        throw std::invalid_argument("The min value cannot exceed the max value.");
-    }
-    double const interval = maximum - minimum;
+
+    auto const [minimum, maximum, interval] = detail::resolve_min_max(data_min, data_max, cfg);
 
     // 行数
     double const height = cfg.height.value_or(interval);
@@ -771,13 +777,7 @@ inline auto vbar(std::vector<std::vector<double>> const& series, Config const& c
     int const zero_y = (minimum <= 0.0 && maximum >= 0.0) ? scaled(0.0) : -1;
 
     // カテゴリ数 (全系列の最大長)
-    std::size_t const categories = [&series] {
-        std::size_t n = 0;
-        for (auto const& s : series) {
-            n = std::max(n, s.size());
-        }
-        return n;
-    }();
+    std::size_t const categories = detail::max_categories(series);
 
     // 出力を組み立てる (上から下)
     std::string out;
@@ -799,7 +799,9 @@ inline auto vbar(std::vector<std::vector<double>> const& series, Config const& c
                     int const y = scaled(s[c]);
                     int const lo = std::min(y, zero_y < 0 ? y : zero_y);
                     int const hi = std::max(y, zero_y < 0 ? y : zero_y);
-                    out += (r >= lo && r <= hi) ? cfg.bar_symbol : " ";
+                    std::string_view const color = cfg.colors.empty() ? std::string_view{}
+                                                                     : cfg.colors[si % cfg.colors.size()];
+                    out += detail::colorize((r >= lo && r <= hi) ? cfg.bar_symbol : " ", color);
                 } else {
                     out += ' ';
                 }
@@ -820,20 +822,11 @@ inline auto vbar(std::vector<std::vector<double>> const& series, Config const& c
  * @throws std::invalid_argument min が max より大きい場合
  */
 inline auto vbar(std::vector<double> const& series, Config const& cfg = {}) -> std::string {
-    if (series.empty()) {
+    auto const multi = detail::to_multi(series);
+    if (!multi) {
         return {};
     }
-    bool all_nan = true;
-    for (double const v : series) {
-        if (detail::is_number(v)) {
-            all_nan = false;
-            break;
-        }
-    }
-    if (all_nan) {
-        return {};
-    }
-    return vbar(std::vector<std::vector<double>>{series}, cfg);
+    return vbar(*multi, cfg);
 }
 
 /**
@@ -858,12 +851,8 @@ inline auto vbar_braille(std::vector<std::vector<double>> const& series, Config 
     if (data_min > data_max) {
         return {};
     }
-    double const minimum = cfg.min.value_or(data_min);
-    double const maximum = cfg.max.value_or(data_max);
-    if (minimum > maximum) {
-        throw std::invalid_argument("The min value cannot exceed the max value.");
-    }
-    double const interval = maximum - minimum;
+
+    auto const [minimum, maximum, interval] = detail::resolve_min_max(data_min, data_max, cfg);
 
     // セル行数 (各セルが 4 ピクセル行)
     int const cell_rows = std::max(static_cast<int>(std::lround(cfg.height.value_or(10.0))), 1);
@@ -880,13 +869,7 @@ inline auto vbar_braille(std::vector<std::vector<double>> const& series, Config 
     int const zero_py = (minimum <= 0.0 && maximum >= 0.0) ? scaled(0.0) : -1;
 
     // カテゴリ数 (全系列の最大長)
-    std::size_t const categories = [&series] {
-        std::size_t n = 0;
-        for (auto const& s : series) {
-            n = std::max(n, s.size());
-        }
-        return n;
-    }();
+    std::size_t const categories = detail::max_categories(series);
     // グリッドのピクセル列数 = 各カテゴリ (系列数×2 + 間隔1)
     int const cell_cols = static_cast<int>((categories * (series.size() * 2 + 1) + 1) / 2);
 
@@ -904,9 +887,11 @@ inline auto vbar_braille(std::vector<std::vector<double>> const& series, Config 
             int const lo = std::min(py, zero_py < 0 ? py : zero_py);
             int const hi = std::max(py, zero_py < 0 ? py : zero_py);
             int const x0 = static_cast<int>(c * (series.size() * 2 + 1) + si * 2);
+            std::string_view const color = cfg.colors.empty() ? std::string_view{}
+                                                             : cfg.colors[si % cfg.colors.size()];
             for (int y = lo; y <= hi; ++y) {
-                grid.set_pixel(x0, y);
-                grid.set_pixel(x0 + 1, y);
+                grid.set_pixel(x0, y, color);
+                grid.set_pixel(x0 + 1, y, color);
             }
         }
     }
@@ -996,20 +981,11 @@ inline auto vbar_braille(std::vector<double> const& series, Config const& cfg = 
  */
 inline auto plot_braille(std::vector<double> const& series, Config const& cfg = {})
     -> std::string {
-    if (series.empty()) {
+    auto const multi = detail::to_multi(series);
+    if (!multi) {
         return {};
     }
-    bool all_nan = true;
-    for (double const v : series) {
-        if (detail::is_number(v)) {
-            all_nan = false;
-            break;
-        }
-    }
-    if (all_nan) {
-        return {};
-    }
-    return plot_braille(std::vector<std::vector<double>>{series}, cfg);
+    return plot_braille(*multi, cfg);
 }
 
 } // namespace txtchart

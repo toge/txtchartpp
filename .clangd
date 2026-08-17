@@ -18,7 +18,7 @@ InlayHints:
   DefaultArguments: true
   TypeNameLimit: 24
 CompileFlags:
-  Add: [-std=c++23]
+  Add: [-std=c++20]
 Style:
   QuotedHeaders: ["build/.*", ".*", "include/.*", "src/.*"]
 Completion:
