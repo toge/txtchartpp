@@ -71,7 +71,7 @@ struct Config {
     std::array<std::string, 10> symbols = {
         "┼", "┤", "╶", "╴", "─", "╰", "╭", "╮", "╯", "│",
     };
-    /** @brief 棒グラフのバー描画シンボル (bar() / bar_braille() で使用) */
+    /** @brief 棒グラフのバー描画シンボル (bar() / bar_block() で使用) */
     std::string bar_symbol = "█";
     /** @brief 系列ごとの ANSI 色コード。空なら色なし (asciichartpy の colors と互換) */
     std::vector<std::string_view> colors;
@@ -645,10 +645,11 @@ inline auto bar(std::vector<double> const& series, Config const& cfg = {}) -> st
 }
 
 /**
- * @brief 複数系列を水平棒グラフに描画する (Braille)
+ * @brief 複数系列を水平棒グラフに描画する (ブロック要素 1/8 セル解像度)
  * @details
- * 各値を Braille 文字で右方向に延ばした棒で表現する。
- * Braille 文字は 1 文字あたり 2列のドットを持ち、半分セル単位で細かい長さ表現が可能。
+ * 各値をブロック要素で右方向に延ばした棒で表現する。
+ * Unicode のブロック要素 (U+258F..U+2588) は 1 セルを 8 段階に分割できるため、
+ * 半分セル解像度 (旧 bar_braille) より 4 倍細かい長さ表現が可能。
  * 行の先頭に値ラベルを表示し、その後に棒を描画する。
  * 系列が複数の場合、カテゴリごとに系列分の行を縦に積み重ねて並べる。
  * @param series 系列のリスト (NaN はスキップされる)
@@ -656,7 +657,7 @@ inline auto bar(std::vector<double> const& series, Config const& cfg = {}) -> st
  * @return グラフ文字列。空系列や全 NaN なら空文字列
  * @throws std::invalid_argument min が max より大きい場合
  */
-inline auto bar_braille(std::vector<std::vector<double>> const& series, Config const& cfg = {})
+inline auto bar_block(std::vector<std::vector<double>> const& series, Config const& cfg = {})
     -> std::string {
     if (series.empty()) {
         return {};
@@ -677,13 +678,17 @@ inline auto bar_braille(std::vector<std::vector<double>> const& series, Config c
     std::size_t label_width = detail::max_label_width(series, cfg.format);
     label_width += static_cast<std::size_t>(cfg.offset);
 
-    // バーの長さ (半分セル単位)。Braille の 1 セル = 2 列。範囲外はクランプする
-    auto const half_len = [&](double const v) -> int {
+    // バーの長さ (1/8 セル単位)。ブロック要素 (U+258F..U+2588) は 1 セルを 8 段階に分割できる。
+    // 範囲外はクランプする (plot() と同様)
+    static constexpr std::array<std::string_view, 8> eighth_blocks = {
+        "▏", "▎", "▍", "▌", "▋", "▊", "▉", "█",
+    };
+    auto const eighth_len = [&](double const v) -> int {
         if (interval <= 0.0) {
             return 0;
         }
         auto const cv = std::min(std::max(v, minimum), maximum);
-        return static_cast<int>(detail::py_round(cv / interval * cfg.height.value_or(interval) * 2.0));
+        return static_cast<int>(detail::py_round(cv / interval * cfg.height.value_or(interval) * 8.0));
     };
 
     // カテゴリごとに系列分の行を積み重ねる
@@ -704,14 +709,14 @@ inline auto bar_braille(std::vector<std::vector<double>> const& series, Config c
                 std::string_view const color = cfg.colors.empty() ? std::string_view{}
                                                                   : cfg.colors[si % cfg.colors.size()];
                 std::string bar_str;
-                int const len = half_len(v);
-                int const full = len / 2;
-                int const half = len % 2;
+                int const len = eighth_len(v);
+                int const full = len / 8;
+                int const rem = len % 8;
                 for (int i = 0; i < full; ++i) {
                     bar_str += cfg.bar_symbol;
                 }
-                if (half != 0) {
-                    bar_str += "▌";  // 左半分のブロック
+                if (rem != 0) {
+                    bar_str += eighth_blocks[static_cast<std::size_t>(rem) - 1];
                 }
                 out += row + detail::colorize(bar_str, color);
             } else {
@@ -729,12 +734,12 @@ inline auto bar_braille(std::vector<std::vector<double>> const& series, Config c
  * @return グラフ文字列。空系列や全 NaN なら空文字列
  * @throws std::invalid_argument min が max より大きい場合
  */
-inline auto bar_braille(std::vector<double> const& series, Config const& cfg = {}) -> std::string {
+inline auto bar_block(std::vector<double> const& series, Config const& cfg = {}) -> std::string {
     auto const multi = detail::to_multi(series);
     if (!multi) {
         return {};
     }
-    return bar_braille(*multi, cfg);
+    return bar_block(*multi, cfg);
 }
 
 /**

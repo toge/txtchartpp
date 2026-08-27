@@ -18,7 +18,7 @@ asciichartpy 互換の ASCII 折れ線グラフ描画 C++ ヘッダオンリー�
 
 - **asciichartpy 1.5.25 と同一出力** — `plot()` の戻り値は Python 版とバイト単位で一致
 - **点字 (Braille) 対応** — `plot_braille()` で高解像度の折れ線描画
-- **棒グラフ対応** — 横棒 `bar()` / 縦棒 `vbar()` と、それぞれの Braille 版 (`bar_braille()` / `vbar_braille()`)
+- **棒グラフ対応** — 横棒 `bar()` / 縦棒 `vbar()` と、それぞれの高解像度版 (`bar_block()` / `vbar_braille()`)。`bar_block()` はブロック要素で 1/8 セル解像度
 - **ヘッダオンリー** — `#include "txtchartpp/txtchart.hpp"` のみ。本体に依存なし
 - **C++20** — `std::format`, 標準ライブラリのみ使用
 - **多系列対応** — 系列ごとに異なる色を付与可能 (ANSI)。棒グラフはグループ (横並び) で描画
@@ -89,7 +89,8 @@ std::cout << txtchart::plot_braille(series) << '\n';
 ### 棒グラフ (横棒) 描画
 
 `bar()` は横棒グラフを描画する。行の先頭に値ラベル、その後に棒が伸びる。
-`bar_braille()` は Braille 文字 (半分セル単位) で細かい長さ表現が可能。
+`bar_block()` はブロック要素 (U+258F..U+2588) を使い、1 セルを 8 段階
+(▏▎▍▌▋▊▉█) に分割して細かい長さ表現が可能。
 
 ```cpp
 std::vector<double> series = {1, 2, 3, 4, 3, 2, 1};
@@ -125,7 +126,7 @@ std::cout << txtchart::vbar(series) << '\n';
 ### 棒グラフの多系列
 
 棒グラフで複数の系列を渡すと、カテゴリごとにグループで描画される。
-`bar()` / `bar_braille()` は系列分の行を縦に積み重ね、`vbar()` /
+`bar()` / `bar_block()` は系列分の行を縦に積み重ね、`vbar()` /
 `vbar_braille()` は系列分の棒を横に並べる。
 
 ```cpp
@@ -182,5 +183,5 @@ std::cout << txtchart::vbar(series, cfg) << '\n';
 `test/test_plot.cpp` は asciichartpy 1.5.25 の実出力と比較するゴールデンテスト。
 期待値は `scripts/gen_test.py` が Python 側で生成する (venv に `asciichartpy` が必要)。
 `test/test_braille.cpp` は `scripts/gen_test_braille.py` の参照実装から生成する。
-`test/test_bar.cpp` / `test/test_bar_braille.cpp` はそれぞれ
-`scripts/gen_test_bar.py` / `scripts/gen_test_bar_braille.py` の参照実装から生成する。
+`test/test_bar.cpp` / `test/test_bar_block.cpp` はそれぞれ
+`scripts/gen_test_bar.py` / `scripts/gen_test_bar_block.py` の参照実装から生成する。

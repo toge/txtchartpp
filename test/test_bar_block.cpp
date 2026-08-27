@@ -1,12 +1,12 @@
 /**
- * @file test_bar_braille.cpp
- * @brief txtchartpp::bar_braille / txtchartpp::vbar_braille のゴールデンテスト
+ * @file test_bar_block.cpp
+ * @brief txtchartpp::bar_block / txtchartpp::vbar_braille のゴールデンテスト
  * @author toge (toge.mail@gmail.com)
  * @date 2026-08-11
  * @copyright Copyright (c) 2026 toge(toge.mail@gmail.com)
  *
  * @details
- * 期待値は scripts/gen_test_bar_braille.py の参照実装が生成する。
+ * 期待値は scripts/gen_test_bar_block.py の参照実装が生成する。
  */
 #include <catch2/catch_all.hpp>
 
@@ -26,7 +26,7 @@ double const nan_value = std::numeric_limits<double>::quiet_NaN();
 
 } // namespace
 
-TEST_CASE("点字横棒: 基本") {
+TEST_CASE("ブロック横棒: 基本") {
     auto const series = std::vector<double>{1, 2, 3, 4};
     auto const expected_bbar_simple = std::string{
     "       1.00 \xe2\x96\x88\n"
@@ -34,10 +34,10 @@ TEST_CASE("点字横棒: 基本") {
 "       3.00 \xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\n"
 "       4.00 \xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88"
   };
-    CHECK(bar_braille(series) == expected_bbar_simple);
+    CHECK(bar_block(series) == expected_bbar_simple);
 }
 
-TEST_CASE("点字横棒: 負値") {
+TEST_CASE("ブロック横棒: 負値") {
     auto const series = std::vector<double>{-3, -2, -1, 0, 1, 2, 3};
     auto const expected_bbar_neg = std::string{
     "      -3.00 \n"
@@ -48,10 +48,10 @@ TEST_CASE("点字横棒: 負値") {
 "       2.00 \xe2\x96\x88\xe2\x96\x88\n"
 "       3.00 \xe2\x96\x88\xe2\x96\x88\xe2\x96\x88"
   };
-    CHECK(bar_braille(series) == expected_bbar_neg);
+    CHECK(bar_block(series) == expected_bbar_neg);
 }
 
-TEST_CASE("点字横棒: 多系列") {
+TEST_CASE("ブロック横棒: 多系列") {
     auto const series = std::vector<std::vector<double>>{
         {10, 20, 30},
         {40, 30, 20},
@@ -59,17 +59,17 @@ TEST_CASE("点字横棒: 多系列") {
     auto cfg = Config{};
     cfg.height = 10.0;
     auto const expected_bbar_multi = std::string{
-    "      10.00 \xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x8c\n"
-"      40.00 \xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x8c\n"
-"      20.00 \xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x8c\n"
+    "      10.00 \xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x8d\n"
+"      40.00 \xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x8d\n"
+"      20.00 \xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x8b\n"
 "      30.00 \xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\n"
 "      30.00 \xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\n"
-"      20.00 \xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x8c"
+"      20.00 \xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x8b"
   };
-    CHECK(bar_braille(series, cfg) == expected_bbar_multi);
+    CHECK(bar_block(series, cfg) == expected_bbar_multi);
 }
 
-TEST_CASE("点字横棒: NaN スキップ") {
+TEST_CASE("ブロック横棒: NaN スキップ") {
     auto const series = std::vector<double>{1, 2, nan_value, 4};
     auto const expected_bbar_nan = std::string{
     "       1.00 \xe2\x96\x88\n"
@@ -77,20 +77,20 @@ TEST_CASE("点字横棒: NaN スキップ") {
 "            \n"
 "       4.00 \xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88"
   };
-    CHECK(bar_braille(series) == expected_bbar_nan);
+    CHECK(bar_block(series) == expected_bbar_nan);
 }
 
-TEST_CASE("点字横棒: 一定値") {
+TEST_CASE("ブロック横棒: 一定値") {
     auto const series = std::vector<double>{2.0, 2.0, 2.0};
     auto const expected_bbar_flat = std::string{
     "       2.00 \n"
 "       2.00 \n"
 "       2.00 "
   };
-    CHECK(bar_braille(series) == expected_bbar_flat);
+    CHECK(bar_block(series) == expected_bbar_flat);
 }
 
-TEST_CASE("点字横棒: 多系列色付き") {
+TEST_CASE("ブロック横棒: 多系列色付き") {
     auto const series = std::vector<std::vector<double>>{
         {10, 20, 30},
         {40, 30, 20},
@@ -99,14 +99,14 @@ TEST_CASE("点字横棒: 多系列色付き") {
     cfg.height = 10.0;
     cfg.colors = {red, blue};
     auto const expected_bbar_colors = std::string{
-    "      10.00 \x1b[31m\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x8c\x1b[0m\n"
-"      40.00 \x1b[34m\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x8c\x1b[0m\n"
-"      20.00 \x1b[31m\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x8c\x1b[0m\n"
+    "      10.00 \x1b[31m\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x8d\x1b[0m\n"
+"      40.00 \x1b[34m\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x8d\x1b[0m\n"
+"      20.00 \x1b[31m\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x8b\x1b[0m\n"
 "      30.00 \x1b[34m\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\x1b[0m\n"
 "      30.00 \x1b[31m\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\x1b[0m\n"
-"      20.00 \x1b[34m\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x8c\x1b[0m"
+"      20.00 \x1b[34m\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x88\xe2\x96\x8b\x1b[0m"
   };
-    CHECK(bar_braille(series, cfg) == expected_bbar_colors);
+    CHECK(bar_block(series, cfg) == expected_bbar_colors);
 }
 
 TEST_CASE("点字縦棒: 基本") {
@@ -210,12 +210,12 @@ TEST_CASE("点字縦棒: 多系列色付き") {
     CHECK(vbar_braille(series, cfg) == expected_bvbar_colors);
 }
 
-TEST_CASE("点字横棒: 空系列 → 空文字列") {
-    CHECK(bar_braille(std::vector<double>{}) == "");
+TEST_CASE("ブロック横棒: 空系列 → 空文字列") {
+    CHECK(bar_block(std::vector<double>{}) == "");
 }
 
-TEST_CASE("点字横棒: 全 NaN → 空文字列") {
-    CHECK(bar_braille(std::vector<double>{nan_value, nan_value}) == "");
+TEST_CASE("ブロック横棒: 全 NaN → 空文字列") {
+    CHECK(bar_block(std::vector<double>{nan_value, nan_value}) == "");
 }
 
 TEST_CASE("点字縦棒: 空系列 → 空文字列") {
@@ -226,19 +226,19 @@ TEST_CASE("点字縦棒: 全 NaN → 空文字列") {
     CHECK(vbar_braille(std::vector<double>{nan_value, nan_value}) == "");
 }
 
-TEST_CASE("点字横棒: マルチ系列空系列 → 空文字列") {
-    CHECK(bar_braille(std::vector<std::vector<double>>{}) == "");
+TEST_CASE("ブロック横棒: マルチ系列空系列 → 空文字列") {
+    CHECK(bar_block(std::vector<std::vector<double>>{}) == "");
 }
 
 TEST_CASE("点字縦棒: マルチ系列空系列 → 空文字列") {
     CHECK(vbar_braille(std::vector<std::vector<double>>{}) == "");
 }
 
-TEST_CASE("点字横棒: エラー (min > max)") {
+TEST_CASE("ブロック横棒: エラー (min > max)") {
     auto cfg = Config{};
     cfg.min = 10.0;
     cfg.max = 1.0;
-    CHECK_THROWS_AS(bar_braille(std::vector<double>{1, 2, 3}, cfg), std::invalid_argument);
+    CHECK_THROWS_AS(bar_block(std::vector<double>{1, 2, 3}, cfg), std::invalid_argument);
 }
 
 TEST_CASE("点字縦棒: エラー (min > max)") {

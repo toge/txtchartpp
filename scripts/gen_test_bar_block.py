@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""txtchartpp::bar_braille / txtchartpp::vbar_braille のゴールデンテスト生成スクリプト。
+"""txtchartpp::bar_block / txtchartpp::vbar_braille のゴールデンテスト生成スクリプト。
 
-C++ の bar_braille() / vbar_braille() と同じアルゴリズムを Python で実装し、
-その出力を test/test_bar_braille.cpp の期待値として埋め込む。
+C++ の bar_block() / vbar_braille() と同じアルゴリズムを Python で実装し、
+その出力を test/test_bar_block.cpp の期待値として埋め込む。
 """
 
 from math import isnan, nan
@@ -23,7 +23,7 @@ def py_round(x):
 LEFT_BITS  = [1, 2, 4, 64]
 RIGHT_BITS = [8, 16, 32, 128]
 
-def bar_braille(series, cfg=None):
+def bar_block(series, cfg=None):
     cfg = cfg or {}
     if len(series) == 0:
         return ''
@@ -58,10 +58,12 @@ def bar_braille(series, cfg=None):
                 label_width = max(label_width, len(fmt.format(v)))
     label_width += offset
 
-    def half_len(v):
+    def eighth_len(v):
         if interval <= 0:
             return 0
-        return int(py_round(v / interval * height * 2.0))
+        return int(py_round(v / interval * height * 8.0))
+
+    EIGHTH = ['▏', '▎', '▍', '▌', '▋', '▊', '▉', '█']
 
     out_lines = []
     for c in range(categories):
@@ -73,10 +75,11 @@ def bar_braille(series, cfg=None):
             label = fmt.format(v)
             row = ' ' * (label_width - len(label)) + label
             color = colors[si % len(colors)] if colors else ''
-            n = half_len(v)
-            bar_str = bar_sym * (n // 2)
-            if n % 2:
-                bar_str += '▌'  # 左半分のブロック
+            n = eighth_len(v)
+            bar_str = bar_sym * (n // 8)
+            rem = n % 8
+            if rem:
+                bar_str += EIGHTH[rem - 1]  # 1/8..7/8 のブロック
             if color:
                 bar_str = color + bar_str + '\033[0m'
             out_lines.append(row + bar_str)
@@ -210,12 +213,12 @@ def cpp_literal(name, val):
 nanv = nan
 
 cases = [
-    ("bbar_simple",  bar_braille([1, 2, 3, 4])),
-    ("bbar_neg",     bar_braille([-3, -2, -1, 0, 1, 2, 3])),
-    ("bbar_multi",   bar_braille([[10, 20, 30], [40, 30, 20]], {'height': 10})),
-    ("bbar_nan",     bar_braille([1, 2, nanv, 4])),
-    ("bbar_flat",    bar_braille([2.0, 2.0, 2.0])),
-    ("bbar_colors",  bar_braille([[10, 20, 30], [40, 30, 20]], {'height': 10, 'colors': [red, blue]})),
+    ("bbar_simple",  bar_block([1, 2, 3, 4])),
+    ("bbar_neg",     bar_block([-3, -2, -1, 0, 1, 2, 3])),
+    ("bbar_multi",   bar_block([[10, 20, 30], [40, 30, 20]], {'height': 10})),
+    ("bbar_nan",     bar_block([1, 2, nanv, 4])),
+    ("bbar_flat",    bar_block([2.0, 2.0, 2.0])),
+    ("bbar_colors",  bar_block([[10, 20, 30], [40, 30, 20]], {'height': 10, 'colors': [red, blue]})),
     ("bvbar_simple", vbar_braille([1, 2, 3, 4])),
     ("bvbar_neg",    vbar_braille([-3, -2, -1, 0, 1, 2, 3])),
     ("bvbar_multi",  vbar_braille([[10, 20, 30], [40, 30, 20]], {'height': 4})),
@@ -225,14 +228,14 @@ cases = [
 ]
 
 hdr = '''/**
- * @file test_bar_braille.cpp
- * @brief txtchartpp::bar_braille / txtchartpp::vbar_braille のゴールデンテスト
+ * @file test_bar_block.cpp
+ * @brief txtchartpp::bar_block / txtchartpp::vbar_braille のゴールデンテスト
  * @author toge (toge.mail@gmail.com)
  * @date 2026-08-11
  * @copyright Copyright (c) 2026 toge(toge.mail@gmail.com)
  *
  * @details
- * 期待値は scripts/gen_test_bar_braille.py の参照実装が生成する。
+ * 期待値は scripts/gen_test_bar_block.py の参照実装が生成する。
  */
 #include <catch2/catch_all.hpp>
 
@@ -258,17 +261,17 @@ blocks = []
 def add_case(name, body, decl, call):
     blocks.append('TEST_CASE("' + name + '") {\n' + body + decl + '    CHECK(' + call + ');\n}\n')
 
-add_case("点字横棒: 基本",
+add_case("ブロック横棒: 基本",
     '    auto const series = std::vector<double>{1, 2, 3, 4};\n',
     cpp_literal('bbar_simple', cases[0][1]),
-    'bar_braille(series) == expected_bbar_simple')
+    'bar_block(series) == expected_bbar_simple')
 
-add_case("点字横棒: 負値",
+add_case("ブロック横棒: 負値",
     '    auto const series = std::vector<double>{-3, -2, -1, 0, 1, 2, 3};\n',
     cpp_literal('bbar_neg', cases[1][1]),
-    'bar_braille(series) == expected_bbar_neg')
+    'bar_block(series) == expected_bbar_neg')
 
-add_case("点字横棒: 多系列",
+add_case("ブロック横棒: 多系列",
     '    auto const series = std::vector<std::vector<double>>{\n'
     '        {10, 20, 30},\n'
     '        {40, 30, 20},\n'
@@ -276,19 +279,19 @@ add_case("点字横棒: 多系列",
     '    auto cfg = Config{};\n'
     '    cfg.height = 10.0;\n',
     cpp_literal('bbar_multi', cases[2][1]),
-    'bar_braille(series, cfg) == expected_bbar_multi')
+    'bar_block(series, cfg) == expected_bbar_multi')
 
-add_case("点字横棒: NaN スキップ",
+add_case("ブロック横棒: NaN スキップ",
     '    auto const series = std::vector<double>{1, 2, nan_value, 4};\n',
     cpp_literal('bbar_nan', cases[3][1]),
-    'bar_braille(series) == expected_bbar_nan')
+    'bar_block(series) == expected_bbar_nan')
 
-add_case("点字横棒: 一定値",
+add_case("ブロック横棒: 一定値",
     '    auto const series = std::vector<double>{2.0, 2.0, 2.0};\n',
     cpp_literal('bbar_flat', cases[4][1]),
-    'bar_braille(series) == expected_bbar_flat')
+    'bar_block(series) == expected_bbar_flat')
 
-add_case("点字横棒: 多系列色付き",
+add_case("ブロック横棒: 多系列色付き",
     '    auto const series = std::vector<std::vector<double>>{\n'
     '        {10, 20, 30},\n'
     '        {40, 30, 20},\n'
@@ -297,7 +300,7 @@ add_case("点字横棒: 多系列色付き",
     '    cfg.height = 10.0;\n'
     '    cfg.colors = {red, blue};\n',
     cpp_literal('bbar_colors', cases[5][1]),
-    'bar_braille(series, cfg) == expected_bbar_colors')
+    'bar_block(series, cfg) == expected_bbar_colors')
 
 add_case("点字縦棒: 基本",
     '    auto const series = std::vector<double>{1, 2, 3, 4};\n',
@@ -340,13 +343,13 @@ add_case("点字縦棒: 多系列色付き",
     cpp_literal('bvbar_colors', cases[11][1]),
     'vbar_braille(series, cfg) == expected_bvbar_colors')
 
-add_case("点字横棒: 空系列 → 空文字列",
+add_case("ブロック横棒: 空系列 → 空文字列",
     '', '',
-    'bar_braille(std::vector<double>{}) == ""')
+    'bar_block(std::vector<double>{}) == ""')
 
-add_case("点字横棒: 全 NaN → 空文字列",
+add_case("ブロック横棒: 全 NaN → 空文字列",
     '', '',
-    'bar_braille(std::vector<double>{nan_value, nan_value}) == ""')
+    'bar_block(std::vector<double>{nan_value, nan_value}) == ""')
 
 add_case("点字縦棒: 空系列 → 空文字列",
     '', '',
@@ -356,19 +359,19 @@ add_case("点字縦棒: 全 NaN → 空文字列",
     '', '',
     'vbar_braille(std::vector<double>{nan_value, nan_value}) == ""')
 
-blocks.append('TEST_CASE("点字横棒: マルチ系列空系列 → 空文字列") {\n'
-    '    CHECK(bar_braille(std::vector<std::vector<double>>{}) == "");\n'
+blocks.append('TEST_CASE("ブロック横棒: マルチ系列空系列 → 空文字列") {\n'
+    '    CHECK(bar_block(std::vector<std::vector<double>>{}) == "");\n'
     '}\n')
 
 blocks.append('TEST_CASE("点字縦棒: マルチ系列空系列 → 空文字列") {\n'
     '    CHECK(vbar_braille(std::vector<std::vector<double>>{}) == "");\n'
     '}\n')
 
-blocks.append('TEST_CASE("点字横棒: エラー (min > max)") {\n'
+blocks.append('TEST_CASE("ブロック横棒: エラー (min > max)") {\n'
     '    auto cfg = Config{};\n'
     '    cfg.min = 10.0;\n'
     '    cfg.max = 1.0;\n'
-    '    CHECK_THROWS_AS(bar_braille(std::vector<double>{1, 2, 3}, cfg), std::invalid_argument);\n'
+    '    CHECK_THROWS_AS(bar_block(std::vector<double>{1, 2, 3}, cfg), std::invalid_argument);\n'
     '}\n')
 
 blocks.append('TEST_CASE("点字縦棒: エラー (min > max)") {\n'
@@ -380,7 +383,7 @@ blocks.append('TEST_CASE("点字縦棒: エラー (min > max)") {\n'
 
 import os
 out = hdr + '\n'.join(blocks)
-p = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'test', 'test_bar_braille.cpp')
+p = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'test', 'test_bar_block.cpp')
 open(p, 'w').write(out)
 print("written", len(out), "bytes")
 for name, val in cases:
