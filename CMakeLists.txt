@@ -43,7 +43,14 @@ if(BUILD_TEST)
     target_link_libraries(test_plot PRIVATE txtchartpp Catch2::Catch2WithMain)
     # C++26 は txtchartpp INTERFACE 側の指定 (MSVC は /std:c++latest) に従う
 
-    catch_discover_tests(test_plot)
+    # catch_discover_tests はテスト名を argv で渡すため、Windows では
+    # 日本語テスト名が文字化けして "No test cases matched" になる。
+    # MSVC ではバイナリ全体を 1 テストとして登録する (ケース毎の粒度は捨てる)。
+    if(MSVC)
+        add_test(NAME test_plot COMMAND test_plot)
+    else()
+        catch_discover_tests(test_plot)
+    endif()
 
     if(ENABLE_FREESTANDING)
         # hosted 実行検証: to_chars フォールバック実装の動作確認。
