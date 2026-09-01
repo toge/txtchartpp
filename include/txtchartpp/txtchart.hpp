@@ -15,11 +15,18 @@
 #ifndef TXTCHARTPP_TXT_CHART_HPP
 #define TXTCHARTPP_TXT_CHART_HPP
 
+// FREESTANDING 対応: TXTCHARTPP_FREESTANDING を定義すると、hosted 専用の
+// <format> を使わず std::to_chars ベースの固定書式 ("{:8.2f} " 相当) で
+// Y 軸ラベルを生成する (cfg.format の書式指定は無視される)。
+// wasm32-unknown-unknown (freestanding) では自動的に有効になる。
+#if !defined(TXTCHARTPP_FREESTANDING) && defined(__wasm__) && !defined(__wasi__) && !defined(__EMSCRIPTEN__)
+#  define TXTCHARTPP_FREESTANDING 1
+#endif
+
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
-#include <format>
 #include <limits>
 #include <optional>
 #include <stdexcept>
@@ -27,6 +34,12 @@
 #include <string_view>
 #include <tuple>
 #include <vector>
+#if defined(TXTCHARTPP_FREESTANDING)
+#include <charconv>
+#include <cstdlib>
+#else
+#include <format>
+#endif
 
 namespace txtchart {
 
@@ -60,7 +73,7 @@ struct Config {
     std::optional<double> height;
     /** @brief Y 軸ラベルの左マージン (最小 2) */
     int offset = 3;
-    /** @brief Y 軸ラベルの書式。std::format の書式文字列 */
+    /** @brief Y 軸ラベルの書式。std::format の書式文字列 (FREESTANDING モードでは無視され固定書式になる) */
     std::string format = "{:8.2f} ";
     /**
      * @brief 描画シンボル (asciichartpy の default_symbols と互換)
@@ -239,6 +252,35 @@ struct BrailleGrid {
     return n;
 }
 
+/** @brief Y 軸ラベルの書式適用
+ * hosted では std::vformat でユーザー指定書式を適用する。
+ * FREESTANDING モードでは <format> を使えないため、書式指定を無視して
+ * std::to_chars (fixed, 小数 2 桁) による既定書式 ("{:8.2f} " 相当) で生成する。
+ */
+[[nodiscard]] inline auto format_label(std::string const& format, double const v) -> std::string {
+#if defined(TXTCHARTPP_FREESTANDING)
+    (void)format;
+    char buf[40];
+    auto const res = std::to_chars(buf, buf + sizeof(buf), v, std::chars_format::fixed, 2);
+    if (res.ec != std::errc{}) {
+        // 巨大値などでバッファに入らない場合は既定幅の空欄で代替
+        return std::string(9, ' ');
+    }
+    std::size_t const len = static_cast<std::size_t>(res.ptr - buf);
+    std::size_t constexpr width = 8;  // 既定書式 "{:8.2f} " 相当の右寄せ幅
+    std::string s;
+    s.reserve((len < width ? width : len) + 1);
+    if (len < width) {
+        s.append(width - len, ' ');
+    }
+    s.append(buf, len);
+    s.push_back(' ');
+    return s;
+#else
+    return std::vformat(format, std::make_format_args(v));
+#endif
+}
+
 /** @brief 全系列の数値でフォーマットしたラベルの最大幅 */
 [[nodiscard]] inline auto max_label_width(std::vector<std::vector<double>> const& series,
                                           std::string const& format) -> std::size_t {
@@ -248,7 +290,7 @@ struct BrailleGrid {
             if (!is_number(v)) {
                 continue;
             }
-            std::string const label = std::vformat(format, std::make_format_args(v));
+            std::string const label = format_label(format, v);
             label_width = std::max(label_width, label.size());
         }
     }
@@ -261,7 +303,12 @@ inline auto resolve_min_max(double const data_min, double const data_max, Config
     double const minimum = cfg.min.value_or(data_min);
     double const maximum = cfg.max.value_or(data_max);
     if (minimum > maximum) {
+#if defined(TXTCHARTPP_FREESTANDING)
+        // 例外を使えない環境では契約違反として即終了する
+        std::abort();
+#else
         throw std::invalid_argument("The min value cannot exceed the max value.");
+#endif
     }
     return {minimum, maximum, maximum - minimum};
 }
@@ -329,7 +376,7 @@ inline auto plot(std::vector<std::vector<double>> const& series, Config const& c
     // Y 軸ラベルと軸シンボル
     for (int y = min2; y <= max2; ++y) {
         double const label_value = maximum - ((y - min2) * interval / (rows != 0 ? rows : 1));
-        std::string const label = std::vformat(cfg.format, std::make_format_args(label_value));
+        std::string const label = detail::format_label(cfg.format, label_value);
         std::size_t const col = static_cast<std::size_t>(
             std::max(offset - static_cast<int>(label.size()), 0));
         result[static_cast<std::size_t>(y - min2)][col] = label;
@@ -537,7 +584,7 @@ inline auto plot_braille(std::vector<std::vector<double>> const& series, Config 
         double const label_value = (cell_rows > 1)
             ? maximum - (i * interval / (cell_rows - 1))
             : maximum;
-        std::string const label = std::vformat(cfg.format, std::make_format_args(label_value));
+        std::string const label = detail::format_label(cfg.format, label_value);
 
         std::string const axis_symbol = (i == zero_line) ? symbols[0] : symbols[1];
 
@@ -611,7 +658,7 @@ inline auto bar(std::vector<std::vector<double>> const& series, Config const& cf
             double const v = (c < s.size()) ? s[c] : std::numeric_limits<double>::quiet_NaN();
             std::string row;
             if (detail::is_number(v)) {
-                std::string const label = std::vformat(cfg.format, std::make_format_args(v));
+                std::string const label = detail::format_label(cfg.format, v);
                 row += std::string(label_width - label.size(), ' ') + label;
                 std::string_view const color = cfg.colors.empty() ? std::string_view{}
                                                                   : cfg.colors[si % cfg.colors.size()];
@@ -704,7 +751,7 @@ inline auto bar_block(std::vector<std::vector<double>> const& series, Config con
             double const v = (c < s.size()) ? s[c] : std::numeric_limits<double>::quiet_NaN();
             std::string row;
             if (detail::is_number(v)) {
-                std::string const label = std::vformat(cfg.format, std::make_format_args(v));
+                std::string const label = detail::format_label(cfg.format, v);
                 row += std::string(label_width - label.size(), ' ') + label;
                 std::string_view const color = cfg.colors.empty() ? std::string_view{}
                                                                   : cfg.colors[si % cfg.colors.size()];
@@ -792,7 +839,7 @@ inline auto vbar(std::vector<std::vector<double>> const& series, Config const& c
         }
         // Y 軸ラベルと軸シンボル
         double const label_value = maximum - (r * interval / (rows > 1 ? rows - 1 : 1));
-        std::string const label = std::vformat(cfg.format, std::make_format_args(label_value));
+        std::string const label = detail::format_label(cfg.format, label_value);
         out += std::string(std::max(static_cast<int>(cfg.offset - label.size()), 0), ' ') + label;
         out += (r == zero_y) ? cfg.symbols[0] : cfg.symbols[1];
 
@@ -933,7 +980,7 @@ inline auto vbar_braille(std::vector<std::vector<double>> const& series, Config 
         double const label_value = (cell_rows > 1)
             ? maximum - (i * interval / (cell_rows - 1))
             : maximum;
-        std::string const label = std::vformat(cfg.format, std::make_format_args(label_value));
+        std::string const label = detail::format_label(cfg.format, label_value);
 
         std::string const axis_symbol = (i == zero_line) ? symbols[0] : symbols[1];
 

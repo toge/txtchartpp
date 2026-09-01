@@ -64,3 +64,5 @@ doc/superpowers
 .serena
 .opencode
 .commandcode
+.codegraph
+build_freestanding

@@ -14,6 +14,7 @@ if(CMAKE_COMPILER_IS_GNUCXX)
 endif()
 
 option(BUILD_TEST "Enable tests" ON)
+option(ENABLE_FREESTANDING "Define TXTCHARTPP_FREESTANDING and add the freestanding check test (requires BUILD_TEST)" OFF)
 
 add_library(txtchartpp INTERFACE)
 target_include_directories(txtchartpp INTERFACE
@@ -37,6 +38,46 @@ if(BUILD_TEST)
     target_compile_features(test_plot PRIVATE cxx_std_26)
 
     catch_discover_tests(test_plot)
+
+    if(ENABLE_FREESTANDING)
+        # hosted 実行検証: to_chars フォールバック実装の動作確認。
+        # (<string>/<vector> を使うため hosted ビルドでは -ffreestanding を付けない)
+        add_executable(freestanding_check test/freestanding_check.cpp)
+        target_link_libraries(freestanding_check PRIVATE txtchartpp)
+        target_compile_definitions(freestanding_check PRIVATE TXTCHARTPP_FREESTANDING)
+        add_test(NAME freestanding_check COMMAND freestanding_check)
+
+        # wasm32-unknown-unknown コンパイル検証 (ヘッダの自動有効化 +
+        # hosted 専用 <format> への依存が無いこと)。
+        # clang は emsdk 同梱のものを優先して検索し、libc++ ヘッダは emsdk の
+        # sysroot を使う。見つからなければスキップする。
+        find_program(TXTCHARTPP_WASM_CLANG NAMES clang++ HINTS "$ENV{EMSDK}/upstream/bin")
+        if(TXTCHARTPP_WASM_CLANG)
+            set(TXTCHARTPP_WASM_SYSROOT "$ENV{EMSDK}/upstream/emscripten/cache/sysroot"
+                CACHE PATH "wasm32 freestanding ビルド用 sysroot (libc++ ヘッダを含むこと)")
+            if(EXISTS "${TXTCHARTPP_WASM_SYSROOT}/include/c++/v1/string")
+                add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/freestanding_check_wasm.o
+                    COMMAND ${TXTCHARTPP_WASM_CLANG} --target=wasm32-unknown-unknown
+                        -std=c++20 -Os -fno-exceptions -fno-rtti -nostdlib
+                        -I${CMAKE_CURRENT_SOURCE_DIR}/include
+                        -isystem${TXTCHARTPP_WASM_SYSROOT}/include/c++/v1
+                        -isystem${TXTCHARTPP_WASM_SYSROOT}/include/wasm32-wasi
+                        -isystem${TXTCHARTPP_WASM_SYSROOT}/include
+                        -c ${CMAKE_CURRENT_SOURCE_DIR}/test/freestanding_check.cpp
+                        -o ${CMAKE_CURRENT_BINARY_DIR}/freestanding_check_wasm.o
+                    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/include/txtchartpp/txtchart.hpp
+                            ${CMAKE_CURRENT_SOURCE_DIR}/test/freestanding_check.cpp
+                    COMMENT "wasm32-unknown-unknown freestanding compile check (txtchartpp)"
+                )
+                add_custom_target(freestanding_check_wasm
+                    DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/freestanding_check_wasm.o)
+            else()
+                message(WARNING "TXTCHARTPP_WASM_SYSROOT に libc++ ヘッダが見つからないため wasm32 検証をスキップします: ${TXTCHARTPP_WASM_SYSROOT}")
+            endif()
+        else()
+            message(STATUS "clang++ (emsdk) が見つからないため wasm32 freestanding 検証をスキップします")
+        endif()
+    endif()
 endif()
 
 # ---- Install ----

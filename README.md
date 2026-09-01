@@ -178,6 +178,28 @@ std::cout << txtchart::vbar(series, cfg) << '\n';
 - `min > max` → `std::invalid_argument` を送出
 - 空系列 / 全 NaN 系列 → 空文字列を返す
 
+## FREESTANDING 対応
+
+`wasm32-unknown-unknown`（組み込み・カーネル等の FREESTANDING 環境）で利用できる。`TXTCHARTPP_FREESTANDING` を定義すると hosted 専用の `<format>` を使わなくなり、Y 軸ラベルは `std::to_chars` ベースの固定書式（既定の `"{:8.2f} "` 相当）で生成される。
+
+### 有効化方法
+
+| 方法 | 手順 |
+|---|---|
+| コンパイラフラグ | `-DTXTCHARTPP_FREESTANDING` を付与 |
+| CMake | `-DENABLE_FREESTANDING=ON`（テストに freestanding 検証が追加される） |
+
+`wasm32-unknown-unknown`（`__wasm__ && !__wasi__ && !__EMSCRIPTEN__`）では自動で有効になる。
+
+### 無効化される機能
+
+| 機能 | hosted | FREESTANDING |
+|---|---|---|
+| `cfg.format` によるラベル書式指定 | `std::format` 書式が有効 | 無視される（`{:8.2f} ` 相当の固定書式） |
+| `min > max` 時の例外 | `std::invalid_argument` を送出 | `std::abort()` で終了（例外を使えない環境のため） |
+
+検証は CMake `-DENABLE_FREESTANDING=ON` で有効化でき、hosted では `test/freestanding_check.cpp` を実行してフォールバック実装を確認、`clang++`（emsdk 同梱を優先）があれば `--target=wasm32-unknown-unknown` でのコンパイル検証も行う。なお `<string>` / `<vector>` 自体は hosted 専用ヘッダとして扱うツールチェーン（GCC 16 の `-ffreestanding` など）ではホスト側検証に制約がある。
+
 ## テスト
 
 `test/test_plot.cpp` は asciichartpy 1.5.25 の実出力と比較するゴールデンテスト。
