@@ -21,7 +21,13 @@ target_include_directories(txtchartpp INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
-target_compile_features(txtchartpp INTERFACE cxx_std_26)
+# MSVC (cl.exe) には /std:c++26 が存在せず、CMake も cl.exe 向けに
+# cxx_std_26 feature を提供しないため /std:c++latest で代替する。
+if(MSVC)
+    target_compile_options(txtchartpp INTERFACE $<$<CXX_COMPILER_ID:MSVC>:/std:c++latest>)
+else()
+    target_compile_features(txtchartpp INTERFACE cxx_std_26)
+endif()
 
 if(BUILD_TEST)
     find_package(Catch2 REQUIRED CONFIG)
@@ -35,7 +41,7 @@ if(BUILD_TEST)
         test/test_bar_block.cpp
     )
     target_link_libraries(test_plot PRIVATE txtchartpp Catch2::Catch2WithMain)
-    target_compile_features(test_plot PRIVATE cxx_std_26)
+    # C++26 は txtchartpp INTERFACE 側の指定 (MSVC は /std:c++latest) に従う
 
     catch_discover_tests(test_plot)
 
