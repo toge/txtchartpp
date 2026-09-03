@@ -152,16 +152,16 @@ std::cout << txtchart::vbar(series, cfg) << '\n';
 
 ## Config オプション
 
-| フィールド | 型 | デフォルト | 説明 |
-|-----------|-----|-----------|------|
-| `min` | `std::optional<double>` | 未設定 (自動) | Y 軸の最小値 (クリップ) |
-| `max` | `std::optional<double>` | 未設定 (自動) | Y 軸の最大値 (クリップ) |
-| `height` | `std::optional<double>` | `interval` (= max - min) | グラフの高さ (行数) |
-| `offset` | `int` | 3 | Y 軸ラベルの左マージン (最小 2) |
-| `format` | `std::string` | `"{:8.2f} "` | Y 軸ラベルの書式 (`std::format` 書式文字列) |
-| `symbols` | `std::array<std::string, 10>` | asciichartpy 互換 | 描画シンボル (ボックス描画文字) |
-| `bar_symbol` | `std::string` | `"█"` | 棒グラフの棒シンボル (`bar()` / `vbar()` 等で使用) |
-| `colors` | `std::vector<std::string_view>` | 空 (色なし) | 系列ごとの ANSI 色。系列数より少なければ循環適用 |
+| フィールド   | 型                              | デフォルト               | 説明                                               |
+| ------------ | ------------------------------- | ------------------------ | -------------------------------------------------- |
+| `min`        | `std::optional<double>`         | 未設定 (自動)            | Y 軸の最小値 (クリップ)                            |
+| `max`        | `std::optional<double>`         | 未設定 (自動)            | Y 軸の最大値 (クリップ)                            |
+| `height`     | `std::optional<double>`         | `interval` (= max - min) | グラフの高さ (行数)                                |
+| `offset`     | `int`                           | 3                        | Y 軸ラベルの左マージン (最小 2)                    |
+| `format`     | `std::string`                   | `"{:8.2f} "`             | Y 軸ラベルの書式 (`std::format` 書式文字列)        |
+| `symbols`    | `std::array<std::string, 10>`   | asciichartpy 互換        | 描画シンボル (ボックス描画文字)                    |
+| `bar_symbol` | `std::string`                   | `"█"`                    | 棒グラフの棒シンボル (`bar()` / `vbar()` 等で使用) |
+| `colors`     | `std::vector<std::string_view>` | 空 (色なし)              | 系列ごとの ANSI 色。系列数より少なければ循環適用   |
 
 色定数: `black`, `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`,
 `lightgray`, `default_`, `darkgray`, `lightred`, `lightgreen`,
@@ -178,27 +178,57 @@ std::cout << txtchart::vbar(series, cfg) << '\n';
 - `min > max` → `std::invalid_argument` を送出
 - 空系列 / 全 NaN 系列 → 空文字列を返す
 
-## FREESTANDING 対応
+## WASI環境対応
 
-`wasm32-unknown-unknown`（組み込み・カーネル等の FREESTANDING 環境）で利用できる。`TXTCHARTPP_FREESTANDING` を定義すると hosted 専用の `<format>` を使わなくなり、Y 軸ラベルは `std::to_chars` ベースの固定書式（既定の `"{:8.2f} "` 相当）で生成される。
+`wasm32-wasip1`（旧 `wasm32-wasi`）環境でも利用できる。例外を利用する一部機能のみが無効化される。
+txtchartppは `<string>` / `<vector>` 等の hosted ヘッダを必要とするため、真の bare-metal (`wasm32-unknown-unknown` の `--freestanding -nostdlib`) は非対応。本ライブラリの WASI 対応は `wasm32-wasip1` + `wasi-sdk` sysroot を想定（`wasm3`, `wasmedge` 等の WASI ランタイムで実行可能）。
+`wasm32-wasip2` 環境の対応は現時点では未検証。
 
 ### 有効化方法
 
 | 方法 | 手順 |
 |---|---|
-| コンパイラフラグ | `-DTXTCHARTPP_FREESTANDING` を付与 |
-| CMake | `-DENABLE_FREESTANDING=ON`（テストに freestanding 検証が追加される） |
+| コンパイラフラグ | `-DTXTCHARTPP_WASI_MINIMAL` を付与（`g++ -DTXTCHARTPP_WASI_MINIMAL -I include ...`） |
+| CMake | `-DENABLE_WASI_MINIMAL=ON`（`CMakeLists.txt:17`、`include/txtchartpp/txtchart.hpp:60`） |
 
-`wasm32-unknown-unknown`（`__wasm__ && !__wasi__ && !__EMSCRIPTEN__`）では自動で有効になる。
+`wasm32-wasip1` / `wasm32-emscripten` は WASI/hosted とみなすため自動では有効にならず、WASI 上で WASI_MINIMAL サブセットを検証したい場合は明示的に `-DTXTCHARTPP_WASI_MINIMAL` を付与する。それ以外の `__STDC_HOSTED__ == 0` 環境でも明示的なフラグが必要。clang での WASI ビルド例は `include/txtchartpp/txtchart.hpp` のコメントを参照。
 
-### 無効化される機能
+### 例外なしモードの挙動
 
-| 機能 | hosted | FREESTANDING |
-|---|---|---|
-| `cfg.format` によるラベル書式指定 | `std::format` 書式が有効 | 無視される（`{:8.2f} ` 相当の固定書式） |
-| `min > max` 時の例外 | `std::invalid_argument` を送出 | `std::abort()` で終了（例外を使えない環境のため） |
+`TXTCHARTPP_WASI_MINIMAL` 定義時、ライブラリ内の全ての例外送出は `TXTCHARTPP_THROW` マクロ（`include/txtchartpp/txtchart.hpp`）経由で `std::abort()` に置き換わる。`<stdexcept>` は include されず、`-fno-exceptions` でビルドできる。hosted 専用の `<format>` も使わず、Y 軸ラベルは `std::to_chars` ベースの固定書式（既定の `"{:8.2f} "` 相当）で生成される。
 
-検証は CMake `-DENABLE_FREESTANDING=ON` で有効化でき、hosted では `test/freestanding_check.cpp` を実行してフォールバック実装を確認、`clang++`（emsdk 同梱を優先）があれば `--target=wasm32-unknown-unknown` でのコンパイル検証も行う。なお `<string>` / `<vector>` 自体は hosted 専用ヘッダとして扱うツールチェーン（GCC 16 の `-ffreestanding` など）ではホスト側検証に制約がある。
+| 機能                              | hosted                         | WASI_MINIMAL                                      |
+| --------------------------------- | ------------------------------ | ------------------------------------------------- |
+| `cfg.format` によるラベル書式指定 | `std::format` 書式が有効       | 無視される（`{:8.2f} ` 相当の固定書式）           |
+| `min > max` 時の例外              | `std::invalid_argument` を送出 | `std::abort()` で終了（例外を使えない環境のため） |
+
+`<string>` / `<vector>` を使う描画系は、`wasm32-wasip1` + `wasi-sdk` ではそのままビルドできる。
+CI の `linux-wasi-minimal` ジョブ（`.github/workflows/ci.yml`）は `wasi-sdk` の `wasm32-wasip1` で `ENABLE_WASI_MINIMAL=ON` の wasm 生成を、`smoke_wasi_minimal` テストは hosted で `-fno-exceptions` ビルドを検証する。
+
+### vcpkg + cmake で wasm32-wasip1 をビルドする
+
+`wasi-sdk`のsysrootを`vcpkg`経由で使う場合はtripletを定義してchainloadする。`catch2`は`signal.h`のWASI未対応で`wasip1`ではビルド失敗するため、スモークのビルドまでに留めるのが現実的。
+
+```bash
+# wasi-sdk 34 を ~/vm/wasi-sdk または /opt/wasi-sdk に展開済みとする
+mkdir -p triplets
+cat > triplets/wasm32-wasip1.cmake <<'EOF'
+set(VCPKG_TARGET_ARCHITECTURE wasm32)
+set(VCPKG_CRT_LINKAGE static)
+set(VCPKG_LIBRARY_LINKAGE static)
+set(VCPKG_CMAKE_SYSTEM_NAME WASI)
+set(VCPKG_CHAINLOAD_TOOLCHAIN_FILE "$ENV{HOME}/vm/wasi-sdk/share/cmake/wasi-sdk-p1.cmake")
+EOF
+
+# vcpkg + cmake
+cmake -B build-wasi -S . -G Ninja \
+  -DCMAKE_TOOLCHAIN_FILE=$HOME/vm/vcpkg/scripts/buildsystems/vcpkg.cmake \
+  -DVCPKG_TARGET_TRIPLET=wasm32-wasip1 \
+  -DVCPKG_OVERLAY_TRIPLETS=$PWD/triplets \
+  -DENABLE_WASI_MINIMAL=ON
+cmake --build build-wasi
+file build-wasi/test/smoke_* # WebAssembly
+```
 
 ## テスト
 

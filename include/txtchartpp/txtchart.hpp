@@ -15,30 +15,61 @@
 #ifndef TXTCHARTPP_TXT_CHART_HPP
 #define TXTCHARTPP_TXT_CHART_HPP
 
-// FREESTANDING 対応: TXTCHARTPP_FREESTANDING を定義すると、hosted 専用の
-// <format> を使わず std::to_chars ベースの固定書式 ("{:8.2f} " 相当) で
-// Y 軸ラベルを生成する (cfg.format の書式指定は無視される)。
-// wasm32-unknown-unknown (freestanding) では自動的に有効になる。
-#if !defined(TXTCHARTPP_FREESTANDING) && defined(__wasm__) && !defined(__wasi__) && !defined(__EMSCRIPTEN__)
-#  define TXTCHARTPP_FREESTANDING 1
+/**
+ * @brief WASI Minimal モード設定。
+ *
+ * TXTCHARTPP_WASI_MINIMAL が定義されると、ライブラリ内の全ての例外送出
+ * (TXTCHARTPP_THROW) が std::abort() に置き換わり、-fno-exceptions でも
+ * ビルドできる「例外なしモード」になる。hosted 専用の <format> も使わず
+ * std::to_chars ベースの固定書式 ("{:8.2f} " 相当) で Y 軸ラベルを生成する
+ * (cfg.format の書式指定は無視される)。コンパイル時評価での不正入力は
+ * 従来どおりコンパイルエラーになる。
+ * wasm32-wasip1 / wasm32-emscripten は WASI/hosted とみなすため自動では
+ * 有効にならず、WASI 上で最小構成を検証する場合は手動で
+ * `-DTXTCHARTPP_WASI_MINIMAL` を指定する。本ライブラリの WASI 対応は
+ * wasi-sdk sysroot を用いた wasm32-wasip1 でのビルドを想定
+ * (wasm3, wasmedge 等で実行可能)。
+ *
+ * 例: clang++ --target=wasm32-wasip1 --sysroot=/opt/wasi-sdk/share/wasi-sysroot
+ *       -fno-exceptions -DTXTCHARTPP_WASI_MINIMAL=1 -I include -c src.cpp -o src.o
+ */
+#if !defined(TXTCHARTPP_WASI_MINIMAL) && defined(__wasm__) && !defined(__wasi__) && !defined(__EMSCRIPTEN__)
+#  define TXTCHARTPP_WASI_MINIMAL 1
+#endif
+
+/**
+ * @brief 例外送出の統一マクロ。
+ *
+ * hosted (既定) では `throw expr` に展開する。TXTCHARTPP_WASI_MINIMAL 定義時は
+ * expr を評価せず `detail::fail()` を呼ぶ。fail() は非 constexpr のため
+ * コンパイル時評価では従来どおりコンパイルエラーになり、実行時は std::abort() する。
+ * これにより -fno-exceptions でもライブラリ全体がビルドできる。
+ */
+#ifndef TXTCHARTPP_WASI_MINIMAL
+#  include <stdexcept>
+#  define TXTCHARTPP_THROW(expr) throw expr
+#else
+#  include <cstdlib>
+namespace txtchart::detail {
+[[noreturn]] inline void fail() noexcept { std::abort(); }
+} // namespace txtchart::detail
+#  define TXTCHARTPP_THROW(expr) ::txtchart::detail::fail()
 #endif
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <cmath>
 #include <cstddef>
 #include <limits>
 #include <optional>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <tuple>
 #include <vector>
-#if defined(TXTCHARTPP_FREESTANDING)
-#include <charconv>
-#include <cstdlib>
+#if defined(TXTCHARTPP_WASI_MINIMAL)
 #else
-#include <format>
+#  include <format>
 #endif
 
 namespace txtchart {
@@ -254,11 +285,11 @@ struct BrailleGrid {
 
 /** @brief Y 軸ラベルの書式適用
  * hosted では std::vformat でユーザー指定書式を適用する。
- * FREESTANDING モードでは <format> を使えないため、書式指定を無視して
+ * WASI_MINIMAL モードでは <format> を使えないため、書式指定を無視して
  * std::to_chars (fixed, 小数 2 桁) による既定書式 ("{:8.2f} " 相当) で生成する。
  */
 [[nodiscard]] inline auto format_label(std::string const& format, double const v) -> std::string {
-#if defined(TXTCHARTPP_FREESTANDING)
+#if defined(TXTCHARTPP_WASI_MINIMAL)
     (void)format;
     char buf[40];
     auto const res = std::to_chars(buf, buf + sizeof(buf), v, std::chars_format::fixed, 2);
@@ -303,12 +334,7 @@ inline auto resolve_min_max(double const data_min, double const data_max, Config
     double const minimum = cfg.min.value_or(data_min);
     double const maximum = cfg.max.value_or(data_max);
     if (minimum > maximum) {
-#if defined(TXTCHARTPP_FREESTANDING)
-        // 例外を使えない環境では契約違反として即終了する
-        std::abort();
-#else
-        throw std::invalid_argument("The min value cannot exceed the max value.");
-#endif
+        TXTCHARTPP_THROW(std::invalid_argument("The min value cannot exceed the max value."));
     }
     return {minimum, maximum, maximum - minimum};
 }
