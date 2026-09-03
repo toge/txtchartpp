@@ -1,9 +1,12 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(txtchartpp LANGUAGES CXX)
+set(TXTCHARTPP_VERSION "1.0.0")
+
+project(txtchartpp VERSION ${TXTCHARTPP_VERSION} LANGUAGES CXX)
 
 option(BUILD_TEST "Enable tests" ON)
 option(ENABLE_WASI_MINIMAL "Enable WASI minimal (no exceptions) mode - wasi-sdk wasm32-wasip1 assumed" OFF)
+option(ENABLE_FREESTANDING "Define TXTCHARTPP_FREESTANDING and add the freestanding check test (requires BUILD_TEST)" OFF)
 
 if(ENABLE_WASI_MINIMAL)
     add_compile_definitions(TXTCHARTPP_WASI_MINIMAL=1)
@@ -14,14 +17,12 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
 
 if(CMAKE_COMPILER_IS_GNUCXX)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -pedantic")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g3")
 endif()
-
-option(BUILD_TEST "Enable tests" ON)
-option(ENABLE_FREESTANDING "Define TXTCHARTPP_FREESTANDING and add the freestanding check test (requires BUILD_TEST)" OFF)
 
 add_library(txtchartpp INTERFACE)
 add_library(txtchartpp::txtchartpp ALIAS txtchartpp)
