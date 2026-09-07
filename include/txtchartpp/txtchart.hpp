@@ -133,7 +133,7 @@ inline auto is_number(double const n) noexcept -> bool {
  * @details Python 3 の round() は round-half-to-even。std::round は
  * half-away-from-zero なので、境界値で出力がずれるのを防ぐ。
  */
-inline auto py_round(double const x) -> double {
+inline auto py_round(double const x) noexcept -> double {
     double const r = std::round(x);
     double const fr = x - std::floor(x);
     if (std::abs(fr - 0.5) > 1e-12) {
@@ -145,7 +145,7 @@ inline auto py_round(double const x) -> double {
 
 /** @brief 全体の最小値/最大値を求める (NaN は無視) */
 [[nodiscard]] inline auto min_max(std::vector<std::vector<double>> const& series)
-    -> std::pair<double, double> {
+    noexcept -> std::pair<double, double> {
     double minimum = std::numeric_limits<double>::max();
     double maximum = std::numeric_limits<double>::lowest();
     for (auto const& s : series) {
@@ -206,7 +206,7 @@ struct BrailleGrid {
         : cell_rows(rows), cell_cols(cols), cells(static_cast<std::size_t>(rows * cols), 0) {}
 
     /** @brief ピクセル座標 (px, py) にドットを立てる。範囲外は無視 */
-    void set_pixel(int const px, int const py) {
+    void set_pixel(int const px, int const py) noexcept {
         if (py < 0 || py >= cell_rows * 4) {
             return;
         }
@@ -275,7 +275,7 @@ struct BrailleGrid {
 }
 
 /** @brief 全系列の最大長 (NaN を問わず) */
-[[nodiscard]] inline auto max_categories(std::vector<std::vector<double>> const& series) -> std::size_t {
+[[nodiscard]] inline auto max_categories(std::vector<std::vector<double>> const& series) noexcept -> std::size_t {
     std::size_t n = 0;
     for (auto const& s : series) {
         n = std::max(n, s.size());
